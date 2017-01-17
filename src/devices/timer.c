@@ -24,6 +24,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+static struct list sleep_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -91,9 +93,18 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct thread *cur = thread_current ();
+  cur->sleep_end = start + ticks;
+
+  enum intr_level old_level;
+  // TODO assert (!intr_context ())
+  old_level = intr_disable ();
+
+  // TODO change elem to potential sleep_elem
+  list_push_back (&sleep_list, &cur->elem);
+  thread_block ();
+
+  intr_set_level (old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +183,29 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  struct list_elem *cur;
+
+  // TODO change name of cur
+  for (cur = list_begin (&sleep_list); cur != list_end (&sleep_list); 
+       cur = list_next (cur))
+    {
+      // TODO this might not be right
+      struct thread *cur_thread = list_entry (cur, struct thread, elem);
+      if (cur_thread->sleep_end <= ticks)
+        {
+          // TODO remove, but unblock calls disable interupt
+          thread_unblock(cur_thread);
+
+          enum intr_level old_level;
+
+          old_level = intr_disable ();
+          
+          list_remove(cur);
+
+          intr_set_level (old_level);
+        }
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
