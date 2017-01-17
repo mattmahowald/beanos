@@ -39,6 +39,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -91,9 +92,15 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+
+  // TODO deal with nonpositive ticks
+
   int64_t start = timer_ticks ();
 
   struct thread *cur = thread_current ();
+
+  // TODO remove debugging printf
+  printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
   cur->sleep_end = start + ticks;
 
   enum intr_level old_level;
@@ -101,10 +108,20 @@ timer_sleep (int64_t ticks)
   old_level = intr_disable ();
 
   // TODO change elem to potential sleep_elem
-  list_push_back (&sleep_list, &cur->elem);
+  list_push_back (&sleep_list, &cur->sleep_elem);
+
+  // TODO remove debugging printf
+  printf("Thread %s added to sleep list\n", cur->name);
+
   thread_block ();
 
+  // TODO remove debugging printf
+  printf("Thread %s blocked successfully\n", cur->name);
+
   intr_set_level (old_level);
+
+  // TODO remove debugging printf
+  printf("Thread %s timer_sleep call ending\n", cur->name);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -181,6 +198,7 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  // printf("Interrupt beginning");
   ticks++;
   thread_tick ();
 
@@ -191,19 +209,31 @@ timer_interrupt (struct intr_frame *args UNUSED)
        cur = list_next (cur))
     {
       // TODO this might not be right
-      struct thread *cur_thread = list_entry (cur, struct thread, elem);
+      struct thread *cur_thread = list_entry (cur, struct thread, sleep_elem);
       if (cur_thread->sleep_end <= ticks)
         {
-          // TODO remove, but unblock calls disable interupt
+          // TODO remove debugging comment
+          printf("Initiating unblock for %s\n", cur_thread->name);
+
+          // TODO remove comment, but unblock calls disable interupt
           thread_unblock(cur_thread);
+
+          // TODO remove debugging comment
+          printf("Finished unblock for %s\n", cur_thread->name);
 
           enum intr_level old_level;
 
           old_level = intr_disable ();
+
+          // TODO remove debugging comment
+          printf("Removing %s from sleep_list\n", cur_thread->name);
           
           list_remove(cur);
 
           intr_set_level (old_level);
+
+          // TODO remove debugging comment
+          printf("%s woken up\n", cur_thread->name);
         }
     }
 }
