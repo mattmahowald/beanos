@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 // #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -99,25 +100,29 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   int64_t end = start + ticks;
 
-  struct semaphore sema;
-  
-  sema_init(&sema, 0);
-  sema.wake_time = end;
+  struct semaphore *sema;
+  sema = malloc (sizeof(struct semaphore));
+  // TODO make sure sema != null, PANIC, make sure allocation is actually necessary
+
+  sema_init (sema, 0);
+  sema->wake_time = end;
   
   enum intr_level old_level;
   old_level = intr_disable ();
   
-  list_push_back (&wake_list, &sema.elem);
+  list_push_back (&wake_list, &sema->elem);
 
   intr_set_level (old_level);
 
-  sema_down (&sema);
+  sema_down (sema);
 
  
   old_level = intr_disable ();
-  list_remove (&sema.elem);
+  list_remove (&sema->elem);
 
   intr_set_level (old_level);
+
+  free(sema);
   
   // printf("Thread %s removed from list at time %" PRId64 "\n", cur->name, timer_ticks ());
 
