@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
-#include "threads/synch.h"
+// #include "threads/synch.h"
 #include "threads/thread.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
@@ -24,6 +24,9 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+// TODO add comment
+static struct list sleep_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -89,11 +93,49 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+  if (ticks <= 0)
+    return;
+
   int64_t start = timer_ticks ();
 
+  struct thread *cur = thread_current ();
+
+  // TODO remove debugging printf
+  printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
+  
+  cur->sleep_end = start + ticks;
+
+  enum intr_level old_level;
+  // TODO assert (!intr_context ())
+  old_level = intr_disable ();
+
+  // TODO change elem to potential sleep_elem
+  list_push_back (&sleep_list, &cur->sleep_elem);
+
+  intr_set_level (old_level);
+
+  // TODO remove debugging printf
+  printf("Thread %s added to sleep list\n", cur->name);
+
+  sema_dowm (&cur->sleep_sem);
+
+  // TODO remove debugging printf
+  printf("Thread %s sema'd successfully\n", cur->name);
+
+  // TODO catch return value
+  old_level = intr_disable ();
+  list_remove (&cur->sleep_elem);
+  intr_set_level (old_level);
+
+  // TODO remove debugging printf
+  printf("Thread %s timer_sleep call ending\n", cur->name);
+
+  // TODO Remove
+  /* Their implementation
   ASSERT (intr_get_level () == INTR_ON);
   while (timer_elapsed (start) < ticks) 
     thread_yield ();
+  */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +214,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  struct list_elem *cur;
+
+  for (cur = list_begin (&sleep_list); cur != list_end (&sleep_list); 
+       cur = list_next (cur))
+    {
+      struct thread *cur_thread = list_entry (cur, struct thread, sleep_elem);
+      if (cur_thread->sleep_end <= ticks)
+        {
+          sema_up (&cur_thread->sleep_sem);
+        }
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
