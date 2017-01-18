@@ -25,7 +25,7 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 // TODO add comment
-static struct list sleep_list;
+static struct list wake_list;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -40,7 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-  list_init (&sleep_list);
+  list_init (&wake_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -97,41 +97,39 @@ timer_sleep (int64_t ticks)
     return;
 
   int64_t start = timer_ticks ();
+  int64_t end = start + ticks;
 
-  struct thread *cur = thread_current ();
-
-  // TODO remove debugging printf
-  printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
+  struct semaphore sema;
   
-  cur->sleep_end = start + ticks;
-
+  sema_init(&sema, 0);
+  sema.wake_time = end;
+  
   enum intr_level old_level;
-  // TODO assert (!intr_context ())
   old_level = intr_disable ();
-
-  // TODO change elem to potential sleep_elem
-  list_push_back (&sleep_list, &cur->sleep_elem);
+  
+  list_push_back (&wake_list, &sema.elem);
 
   intr_set_level (old_level);
 
+  sema_down (&sema);
+
+ 
+  old_level = intr_disable ();
+  list_remove (&sema.elem);
+
+  intr_set_level (old_level);
   
+  // printf("Thread %s removed from list at time %" PRId64 "\n", cur->name, timer_ticks ());
 
   // TODO remove debugging printf
-  printf("Thread %s added to sleep list\n", cur->name);
-
-  sema_down (&cur->sleep_sem);
-
-  // TODO remove debugging printf
-  printf("Thread %s sema'd successfully\n", cur->name);
+  // printf("Thread %s sema'd successfullyat time %" PRId64 "\n", cur->name, timer_ticks ());
 
   // TODO catch return value
-  old_level = intr_disable ();
-  list_remove (&cur->sleep_elem);
-  intr_set_level (old_level);
+  // TODO remove debugging printf
 
   // TODO remove debugging printf
-  printf("Thread %s timer_sleep call ending at time %" PRId64 "\n", cur->name, timer_ticks ());
-
+  // printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
+  
   // TODO Remove
   /* Their implementation
   ASSERT (intr_get_level () == INTR_ON);
@@ -218,14 +216,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick ();
 
   struct list_elem *cur;
-
-  for (cur = list_begin (&sleep_list); cur != list_end (&sleep_list); 
+  for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {
-      struct thread *cur_thread = list_entry (cur, struct thread, sleep_elem);
-      if (cur_thread->sleep_end <= ticks)
+      struct semaphore *sema = list_entry (cur, struct semaphore, elem);
+      if (sema->wake_time <= ticks)
         {
-          sema_up (&cur_thread->sleep_sem);
+          sema_up (sema);
         }
     }
 }
