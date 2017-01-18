@@ -114,10 +114,12 @@ timer_sleep (int64_t ticks)
 
   intr_set_level (old_level);
 
+  
+
   // TODO remove debugging printf
   printf("Thread %s added to sleep list\n", cur->name);
 
-  sema_dowm (&cur->sleep_sem);
+  sema_down (&cur->sleep_sem);
 
   // TODO remove debugging printf
   printf("Thread %s sema'd successfully\n", cur->name);
@@ -128,7 +130,7 @@ timer_sleep (int64_t ticks)
   intr_set_level (old_level);
 
   // TODO remove debugging printf
-  printf("Thread %s timer_sleep call ending\n", cur->name);
+  printf("Thread %s timer_sleep call ending at time %" PRId64 "\n", cur->name, timer_ticks ());
 
   // TODO Remove
   /* Their implementation
