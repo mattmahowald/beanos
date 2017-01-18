@@ -94,6 +94,13 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    // TODO add priority stuff:
+    //    way to detect if donated from another thread (bool?)
+    //    way to remember priority from before
+    //    way to find locks that are currently held:
+    //      this way another thread can donate priority to unblock
+    //    need we keep track of a lock that isi currently blocking? idrk
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

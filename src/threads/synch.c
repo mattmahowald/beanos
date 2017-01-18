@@ -198,6 +198,10 @@ lock_acquire (struct lock *lock)
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+
+  // TODO I believe this is where we iterate over all threads to find
+  // where this lock is being held and donate if lock holders priority < 
+  // our priority
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -233,6 +237,10 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  // TODO Here we will need ot murk shit to make sure we are no longer donated
+  // and additionally reinstate priority
+  
 }
 
 /* Returns true if the current thread holds LOCK, false

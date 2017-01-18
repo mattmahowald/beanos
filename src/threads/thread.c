@@ -201,6 +201,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  // TODO yield current thread to t if priority is greater
+
   return tid;
 }
 
@@ -336,12 +338,19 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+
+  // TODO if priority becomes greater than the current running thread, 
+  // yield immediately when thread becomes available e.g.
+  //    lock release, thread lowers on priority, etc.
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
+
+  //TODO add priority donation
+
   return thread_current ()->priority;
 }
 
