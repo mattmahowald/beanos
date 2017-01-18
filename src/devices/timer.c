@@ -25,8 +25,10 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+
 // TODO add comment
 static struct list wake_list;
+
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -217,10 +219,12 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  // printf("Interrupt beginning");
   ticks++;
   thread_tick ();
 
   struct list_elem *cur;
+
   for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {
