@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -94,7 +95,12 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    struct list_elem sleep_elem;        /* List element for sleep_list */
+    // TODO add priority stuff:
+    //    way to detect if donated from another thread (bool?)
+    //    way to remember priority from before
+    //    way to find locks that are currently held:
+    //      this way another thread can donate priority to unblock
+    //    need we keep track of a lock that isi currently blocking? idrk
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

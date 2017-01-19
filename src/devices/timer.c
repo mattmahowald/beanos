@@ -5,8 +5,9 @@
 #include <stdio.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
-#include "threads/synch.h"
+// #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -24,7 +25,10 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-static struct list sleep_list;
+
+// TODO add comment
+static struct list wake_list;
+
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -39,7 +43,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-  list_init (&sleep_list);
+  list_init (&wake_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,36 +96,53 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-
-  // TODO deal with nonpositive ticks
+  if (ticks <= 0)
+    return;
 
   int64_t start = timer_ticks ();
+  int64_t end = start + ticks;
 
-  struct thread *cur = thread_current ();
+  struct semaphore *sema;
+  sema = malloc (sizeof(struct semaphore));
+  // TODO make sure sema != null, PANIC, make sure allocation is actually necessary
 
-  // TODO remove debugging printf
-  printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
-  cur->sleep_end = start + ticks;
-
+  sema_init (sema, 0);
+  sema->wake_time = end;
+  
   enum intr_level old_level;
-  // TODO assert (!intr_context ())
   old_level = intr_disable ();
-
-  // TODO change elem to potential sleep_elem
-  list_push_back (&sleep_list, &cur->sleep_elem);
-
-  // TODO remove debugging printf
-  printf("Thread %s added to sleep list\n", cur->name);
-
-  thread_block ();
-
-  // TODO remove debugging printf
-  printf("Thread %s blocked successfully\n", cur->name);
+  
+  list_push_back (&wake_list, &sema->elem);
 
   intr_set_level (old_level);
 
+  sema_down (sema);
+
+ 
+  old_level = intr_disable ();
+  list_remove (&sema->elem);
+
+  intr_set_level (old_level);
+
+  free(sema);
+  
+  // printf("Thread %s removed from list at time %" PRId64 "\n", cur->name, timer_ticks ());
+
   // TODO remove debugging printf
-  printf("Thread %s timer_sleep call ending\n", cur->name);
+  // printf("Thread %s sema'd successfullyat time %" PRId64 "\n", cur->name, timer_ticks ());
+
+  // TODO catch return value
+  // TODO remove debugging printf
+
+  // TODO remove debugging printf
+  // printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
+  
+  // TODO Remove
+  /* Their implementation
+  ASSERT (intr_get_level () == INTR_ON);
+  while (timer_elapsed (start) < ticks) 
+    thread_yield ();
+  */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -204,36 +225,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
 
   struct list_elem *cur;
 
-  // TODO change name of cur
-  for (cur = list_begin (&sleep_list); cur != list_end (&sleep_list); 
+  for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {
-      // TODO this might not be right
-      struct thread *cur_thread = list_entry (cur, struct thread, sleep_elem);
-      if (cur_thread->sleep_end <= ticks)
+      struct semaphore *sema = list_entry (cur, struct semaphore, elem);
+      if (sema->wake_time <= ticks)
         {
-          // TODO remove debugging comment
-          printf("Initiating unblock for %s\n", cur_thread->name);
-
-          // TODO remove comment, but unblock calls disable interupt
-          thread_unblock(cur_thread);
-
-          // TODO remove debugging comment
-          printf("Finished unblock for %s\n", cur_thread->name);
-
-          enum intr_level old_level;
-
-          old_level = intr_disable ();
-
-          // TODO remove debugging comment
-          printf("Removing %s from sleep_list\n", cur_thread->name);
-          
-          list_remove(cur);
-
-          intr_set_level (old_level);
-
-          // TODO remove debugging comment
-          printf("%s woken up\n", cur_thread->name);
+          sema_up (sema);
         }
     }
 }

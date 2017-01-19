@@ -9,6 +9,9 @@ struct semaphore
   {
     unsigned value;             /* Current value. */
     struct list waiters;        /* List of waiting threads. */
+    struct list_elem elem;
+    // TODO see if this can be more graceful
+    int64_t wake_time; 
   };
 
 void sema_init (struct semaphore *, unsigned value);
