@@ -256,10 +256,6 @@ thread_unblock (struct thread *t)
 
   add_to_ready_list (t);
   t->status = THREAD_READY;
-  
-  // TODO seize control of processor if lowest priority (or add to appropriate ready list)
-  if (t->priority > thread_current ()->priority)
-    thread_yield ();
 
   intr_set_level (old_level);
 }
