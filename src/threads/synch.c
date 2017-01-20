@@ -196,8 +196,12 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  // TODO if (lock->holder != NULL) 
+  //    get holder, set donated to my priority
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  // add lock to threads locked list
 
   // TODO I believe this is where we iterate over all threads to find
   // where this lock is being held and donate if lock holders priority < 
@@ -236,6 +240,17 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+  // TODO is this the right spot to add shit
+
+  // TODO bookkeep:
+  //    if cur_thread->donated_priority != 0
+  //      for each held look
+  //          for each waiter on lock->sem
+  //              keep track of highest
+  // new_priority < base_priority ? 0 : new_priority
+  // 
+  // remove lock from held list
+
   sema_up (&lock->semaphore);
 
   // TODO Here we will need ot murk shit to make sure we are no longer donated
