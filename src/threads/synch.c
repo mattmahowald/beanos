@@ -258,17 +258,13 @@ lock_release (struct lock *lock)
     {
       struct list *locks_held = &cur_thread->locks_held;
       struct list_elem *lock_e;
-
       for (lock_e = list_begin (locks_held); lock_e != list_end (locks_held);
            lock_e = list_next (lock_e))
         {
           struct lock *cur_lock = list_entry (lock_e, struct lock, elem);
-          struct list threads_waiting = cur_lock->semaphore.waiters;
           struct list_elem *e;
-
-          for (e = list_begin (&threads_waiting); 
-               e != list_end (&threads_waiting); e = list_next (e))
-            {
+          struct list *waiters = &cur_lock->semaphore.waiters;
+          for (e = list_begin(waiters); e != list_end(waiters); e = list_next(e)) {
               struct thread *t = list_entry (e, struct thread, elem);
               int effective_priority = thread_get_effective_priority(t);
               if (highest_priority < effective_priority)

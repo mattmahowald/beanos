@@ -366,7 +366,8 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  struct thread *t = thread_current ();
+  return t->donated_priority != 0 ? t->donated_priority : t->priority;
 }
 
 int 
