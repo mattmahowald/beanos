@@ -353,9 +353,12 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  int old_priority = thread_current ()->priority;
-  thread_current ()->priority = new_priority;
-  if (old_priority > new_priority)
+  struct thread *t = thread_current();
+  int old_priority = t->priority;
+
+  t->priority = new_priority;
+
+  if (old_priority > new_priority && t->donated_priority == 0)
     thread_yield ();
 }
 
@@ -363,10 +366,13 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-
-  //TODO add priority donation
-
   return thread_current ()->priority;
+}
+
+int 
+thread_get_effective_priority(struct thread *t) 
+{
+  return t->donated_priority != 0 ? t->donated_priority : t->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -486,8 +492,11 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->donated_priority = 0;
   t->sleep_end = 0; // TODO verify this necessity
   t->magic = THREAD_MAGIC;
+
+  list_init (&t->locks_held);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -510,7 +519,9 @@ alloc_frame (struct thread *t, size_t size)
 static void
 add_to_ready_list (struct thread *t)
 {
-  list_push_back (&ready_list[t->priority], &t->elem);
+  // TODO GNU Standardize
+  int effective_priority = thread_get_effective_priority(t);
+  list_push_back (&ready_list[effective_priority], &t->elem);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

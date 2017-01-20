@@ -197,11 +197,16 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   // TODO if (lock->holder != NULL) 
-  //    get holder, set donated to my priority
+  //    get holder, set donated to my highest priority
+  if (lock->holder != NULL) 
+    //TODO GNU STANDARD
+    lock->holder->donated_priority = 
+      thread_get_effective_priority (thread_current ());
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
-  // add lock to threads locked list
+  // TODO add lock to threads locked list
+  list_push_back (&thread_current ()->locks_held, &lock->elem);
 
   // TODO I believe this is where we iterate over all threads to find
   // where this lock is being held and donate if lock holders priority < 
@@ -243,13 +248,41 @@ lock_release (struct lock *lock)
   // TODO is this the right spot to add shit
 
   // TODO bookkeep:
+  // remove lock from held list
+  list_remove (&lock->elem);
+  int highest_priority = 0;
+
+  // TODO This worries me... using thread_current a ton vs storing.
+  struct thread *cur_thread = thread_current ();
+  if (thread_current ()->donated_priority != 0)
+    {
+      struct list *locks_held = &cur_thread->locks_held;
+      struct list_elem *lock_e;
+
+      for (lock_e = list_begin (locks_held); lock_e != list_end (locks_held);
+           lock_e = list_next (lock_e))
+        {
+          struct lock *cur_lock = list_entry (lock_e, struct lock, elem);
+          struct list threads_waiting = cur_lock->semaphore.waiters;
+          struct list_elem *e;
+
+          for (e = list_begin (&threads_waiting); 
+               e != list_end (&threads_waiting); e = list_next (e))
+            {
+              struct thread *t = list_entry (e, struct thread, elem);
+              int effective_priority = thread_get_effective_priority(t);
+              if (highest_priority < effective_priority)
+                highest_priority = effective_priority;
+            }
+        }
+    }
+
   //    if cur_thread->donated_priority != 0
   //      for each held look
   //          for each waiter on lock->sem
   //              keep track of highest
-  // new_priority < base_priority ? 0 : new_priority
-  // 
-  // remove lock from held list
+
+  cur_thread->donated_priority = highest_priority < cur_thread->priority ? 0 : highest_priority;
 
   sema_up (&lock->semaphore);
 
