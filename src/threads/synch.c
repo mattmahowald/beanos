@@ -129,13 +129,17 @@ sema_up (struct semaphore *sema)
       struct list_elem *max_elem  = list_max(&sema->waiters, greater_pri, NULL);
       list_remove(max_elem);
       thread_unblock (list_entry (max_elem,
-                                 struct thread, elem));
-    }
+                                  struct thread, elem));
+
+    } 
+
   sema->value++;
+  // TODO This is fucking our alarm right now. Double check where put
+  if (!intr_context ())
+    thread_yield ();
   intr_set_level (old_level);
 
-  // This is fucking our alarm right now. Double check where put
-  thread_yield ();
+
 }
 
 static void sema_test_helper (void *sema_);

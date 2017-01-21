@@ -220,6 +220,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   // printf("Interrupt beginning");
+
   ticks++;
   thread_tick ();
 
