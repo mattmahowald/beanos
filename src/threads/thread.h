@@ -97,8 +97,9 @@ struct thread
 
     // TODO add priority stuff:
     //    way to detect if donated from another thread (bool?)
-    //    way to remember priority from before
-    //    way to find locks that are currently held:
+    int donated_priority;
+    struct list locks_held;
+    struct lock *blocked_on;
     //      this way another thread can donate priority to unblock
     //    need we keep track of a lock that isi currently blocking? idrk
 
@@ -141,6 +142,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+int thread_get_effective_priority(struct thread *t);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

@@ -25,10 +25,7 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-
-// TODO add comment
 static struct list wake_list;
-
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -100,49 +97,22 @@ timer_sleep (int64_t ticks)
     return;
 
   int64_t start = timer_ticks ();
-  int64_t end = start + ticks;
 
-  struct semaphore *sema;
-  sema = malloc (sizeof(struct semaphore));
-  // TODO make sure sema != null, PANIC, make sure allocation is actually necessary
+  // TODO does this need to be a static struct
+  struct sleep_item sleeper;
+  sleeper.wake_time = start + ticks;;
+  sema_init (&sleeper.sema, 0);
 
-  sema_init (sema, 0);
-  sema->wake_time = end;
-  
   enum intr_level old_level;
-  old_level = intr_disable ();
-  
-  list_push_back (&wake_list, &sema->elem);
-
+  old_level = intr_disable ();  
+  list_push_back (&wake_list, &sleeper.elem);
   intr_set_level (old_level);
 
-  sema_down (sema);
-
+  sema_down (&sleeper.sema);
  
   old_level = intr_disable ();
-  list_remove (&sema->elem);
-
+  list_remove (&sleeper.elem);
   intr_set_level (old_level);
-
-  free(sema);
-  
-  // printf("Thread %s removed from list at time %" PRId64 "\n", cur->name, timer_ticks ());
-
-  // TODO remove debugging printf
-  // printf("Thread %s sema'd successfullyat time %" PRId64 "\n", cur->name, timer_ticks ());
-
-  // TODO catch return value
-  // TODO remove debugging printf
-
-  // TODO remove debugging printf
-  // printf("Thread %s initiating sleep for %" PRId64 " ticks at time %" PRId64 "\n", cur->name, ticks, start);
-  
-  // TODO Remove
-  /* Their implementation
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
-  */
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -219,21 +189,16 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  // printf("Interrupt beginning");
   ticks++;
-  thread_tick ();
-
   struct list_elem *cur;
-
   for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {
-      struct semaphore *sema = list_entry (cur, struct semaphore, elem);
-      if (sema->wake_time <= ticks)
-        {
-          sema_up (sema);
-        }
+      struct sleep_item *sleeper = list_entry (cur, struct sleep_item, elem);
+      if (sleeper->wake_time <= ticks)
+        sema_up (&sleeper->sema);
     }
+  thread_tick ();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
