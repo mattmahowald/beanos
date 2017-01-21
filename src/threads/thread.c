@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/fixed_point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -90,6 +91,7 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
+  fixed_point a = int_to_fixed_point(10);
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
