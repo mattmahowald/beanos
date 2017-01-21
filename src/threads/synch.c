@@ -50,6 +50,15 @@ sema_init (struct semaphore *sema, unsigned value)
   list_init (&sema->waiters);
 }
 
+
+static bool 
+greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux) {
+  struct thread *A = list_entry (a, struct thread, elem);
+  struct thread *B = list_entry (b, struct thread, elem);
+  return thread_get_effective_priority(A) > thread_get_effective_priority(B);
+}
+
+
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
    to become positive and then atomically decrements it.
 
@@ -68,7 +77,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, greater_pri, NULL);
       thread_block ();
     }
   sema->value--;
@@ -101,6 +110,7 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
+
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -115,7 +125,7 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+                                 struct thread, elem)); 
   sema->value++;
   intr_set_level (old_level);
 }
@@ -282,6 +292,7 @@ lock_release (struct lock *lock)
 
   sema_up (&lock->semaphore);
 
+  thread_yield ();
   // TODO Here we will need ot murk shit to make sure we are no longer donated
   // and additionally reinstate priority
   
