@@ -56,7 +56,7 @@ greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux)
 {
   struct thread *A = list_entry (a, struct thread, elem);
   struct thread *B = list_entry (b, struct thread, elem);
-  return thread_get_effective_priority (A) > thread_get_effective_priority (B);
+  return thread_get_effective_priority (A) < thread_get_effective_priority (B);
 }
 
 
@@ -78,7 +78,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_insert_ordered (&sema->waiters, &thread_current ()->elem, greater_pri, NULL);
+      list_push_back (&sema->waiters, &thread_current ()->elem);
       thread_block ();
     }
   sema->value--;
@@ -125,10 +125,17 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                 struct thread, elem)); 
+    {
+      struct list_elem *max_elem  = list_max(&sema->waiters, greater_pri, NULL);
+      list_remove(max_elem);
+      thread_unblock (list_entry (max_elem,
+                                 struct thread, elem));
+    }
   sema->value++;
   intr_set_level (old_level);
+
+  // This is fucking our alarm right now. Double check where put
+  thread_yield ();
 }
 
 static void sema_test_helper (void *sema_);
