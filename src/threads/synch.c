@@ -135,7 +135,7 @@ sema_up (struct semaphore *sema)
 
   sema->value++;
   // TODO This is fucking our alarm right now. Double check where put
-  if (!intr_context ())
+  if (!intr_context () && !thread_mlfqs)
     thread_yield ();
   intr_set_level (old_level);
 
