@@ -99,6 +99,7 @@ struct thread
     //    way to detect if donated from another thread (bool?)
     int donated_priority;
     struct list locks_held;
+    struct lock *blocked_on;
     //      this way another thread can donate priority to unblock
     //    need we keep track of a lock that isi currently blocking? idrk
 

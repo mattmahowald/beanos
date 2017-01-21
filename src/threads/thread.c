@@ -496,6 +496,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->donated_priority = 0;
   t->sleep_end = 0; // TODO verify this necessity
   t->magic = THREAD_MAGIC;
+  t->blocked_on = NULL;
 
   list_init (&t->locks_held);
 

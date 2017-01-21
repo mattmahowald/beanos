@@ -52,10 +52,11 @@ sema_init (struct semaphore *sema, unsigned value)
 
 
 static bool 
-greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux) {
+greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux) 
+{
   struct thread *A = list_entry (a, struct thread, elem);
   struct thread *B = list_entry (b, struct thread, elem);
-  return thread_get_effective_priority(A) > thread_get_effective_priority(B);
+  return thread_get_effective_priority (A) > thread_get_effective_priority (B);
 }
 
 
@@ -209,11 +210,19 @@ lock_acquire (struct lock *lock)
   // TODO if (lock->holder != NULL) 
   //    get holder, set donated to my highest priority
   if (lock->holder != NULL) 
+    {
     //TODO GNU STANDARD
-    lock->holder->donated_priority = 
-      thread_get_effective_priority (thread_current ());
-
+      int priority_to_donate = thread_get_effective_priority (thread_current ());
+      struct lock *l = lock;
+      while (l != NULL) 
+        {
+          l->holder->donated_priority = priority_to_donate;
+          l = l->holder->blocked_on;
+        }
+      thread_current ()->blocked_on = lock;
+    }
   sema_down (&lock->semaphore);
+  thread_current ()->blocked_on = NULL;
   lock->holder = thread_current ();
   // TODO add lock to threads locked list
   list_push_back (&thread_current ()->locks_held, &lock->elem);
@@ -274,6 +283,7 @@ lock_release (struct lock *lock)
           struct lock *cur_lock = list_entry (lock_e, struct lock, elem);
           struct list_elem *e;
           struct list *waiters = &cur_lock->semaphore.waiters;
+          // TODO pop front I think
           for (e = list_begin(waiters); e != list_end(waiters); e = list_next(e)) {
               struct thread *t = list_entry (e, struct thread, elem);
               int effective_priority = thread_get_effective_priority(t);
