@@ -4,7 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
-#include "threads/fixed_point.h"
+#include "threads/fixed-point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"

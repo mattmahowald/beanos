@@ -1,11 +1,12 @@
 #ifndef THREADS_FIXED_POINT_H
 #define THREADS_FIXED_POINT_H
 
+#include <stdint.h>
+
 #define Q 14
 #define F (1 << Q)
 
 typedef int fixed_point;
-
 
 static inline fixed_point
 int_to_fixed_point (int n) 
