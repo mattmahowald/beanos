@@ -385,6 +385,26 @@ thread_set_priority (int new_priority)
     thread_yield ();
 }
 
+#define RECENT_CPU_DIVISOR 4
+#define NICENESS_FACTOR 2
+
+static int
+mlfqs_get_priority (struct thread *t)
+{
+  // TODO this is gross
+  fixed_point adjusted_cpu = fixed_point_divide_int(t->recent_cpu, RECENT_CPU_DIVISOR);
+  fixed_point adjusted_niceness =  fixed_point_multiply_int(t->nice, NICENESS_FACTOR);
+  int priority = fixed_point_down_to_int(fixed_point_subtract(
+                                         fixed_point_from_int(PRI_MAX), 
+                                         fixed_point_add(adjusted_cpu, 
+                                                         adjusted_niceness)));
+  if (priority < PRI_MIN)
+    priority = PRI_MIN;
+  if (priority > PRI_MAX)
+    priority = PRI_MAX;
+  return priority;
+}
+
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 

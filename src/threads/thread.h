@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 #include "threads/synch.h"
 
 /* States in a thread's life cycle. */
@@ -100,8 +101,8 @@ struct thread
     struct lock *blocked_on;            /* List of blocking lock. */
 
     // TODO 
-    // int nice;                           /* Niceness of the thread. */
-    // int recent_cpu                      /* Recent cpu usage. */
+    fixed_point nice;                           /* Niceness of the thread. */
+    fixed_point recent_cpu;                     /* Recent cpu usage. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
