@@ -123,20 +123,26 @@ sema_up (struct semaphore *sema)
 
   ASSERT (sema != NULL);
 
+  int unblocked_priority = 0;
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
     {
       struct list_elem *max_elem  = list_max(&sema->waiters, greater_pri, NULL);
       list_remove(max_elem);
-      thread_unblock (list_entry (max_elem,
-                                  struct thread, elem));
-
+      struct thread *t = list_entry (max_elem,
+                                  struct thread, elem);
+      thread_unblock (t);
+      unblocked_priority = thread_get_effective_priority(t);
     } 
 
   sema->value++;
-  // TODO This is fucking our alarm right now. Double check where put
-  if (!intr_context () && !thread_mlfqs)
-    thread_yield ();
+  if (unblocked_priority > thread_get_priority ())
+    {
+      if (!intr_context ())
+        thread_yield ();
+     else 
+        intr_yield_on_return();
+    }
   intr_set_level (old_level);
 
 

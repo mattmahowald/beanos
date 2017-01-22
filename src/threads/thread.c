@@ -55,6 +55,8 @@ static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
+static fixed_point load_avg;
+
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -371,6 +373,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  // TODO
+  // if (!mlfqs)
+
   struct thread *t = thread_current();
   int old_priority = t->priority;
 
@@ -385,19 +390,22 @@ int
 thread_get_priority (void) 
 {
   struct thread *t = thread_current ();
-  return t->donated_priority != 0 ? t->donated_priority : t->priority;
+  return thread_get_effective_priority (t);
 }
 
+// TODO Change the name of this function
 int 
 thread_get_effective_priority(struct thread *t) 
 {
+  // TODO return the mlfqs priority (Should already be handled)
   return t->donated_priority != 0 ? t->donated_priority : t->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
+  // TODO current_thread ()->nice = nice;
   /* Not yet implemented. */
 }
 
@@ -406,6 +414,7 @@ int
 thread_get_nice (void) 
 {
   /* Not yet implemented. */
+  // TODO return fixed_point_to_nearest_int(thread_current ()->nice);
   return 0;
 }
 
@@ -413,7 +422,8 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
+  // TODO return fixed_point_to_nearest_int(fixed_point_multiply_int(load_avg,
+  //                                                                 100));
   return 0;
 }
 
@@ -422,6 +432,8 @@ int
 thread_get_recent_cpu (void) 
 {
   /* Not yet implemented. */
+  // TODO return fixed_point_to_nearest_int(fixed_point_multiply_int(
+  //                                        thread_current ()->recent_cpu, 100));
   return 0;
 }
 
