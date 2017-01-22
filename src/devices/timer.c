@@ -98,7 +98,7 @@ timer_sleep (int64_t ticks)
 
   int64_t start = timer_ticks ();
 
-  // TODO does this need to be a static struct
+  // TODO move struct into timer.c
   struct sleep_item sleeper;
   sleeper.wake_time = start + ticks;;
   sema_init (&sleeper.sema, 0);

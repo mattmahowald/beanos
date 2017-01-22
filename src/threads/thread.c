@@ -24,8 +24,10 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 
-// TODO make this an array of 64 lists
+/* PRI_MAX + 1 lists of ready threads (one for each 
+   priority for round robin scheduling). */
 static struct list ready_list[PRI_MAX + 1];
+static int ready_thread_count;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -91,7 +93,6 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
-  fixed_point a = int_to_fixed_point(10);
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
@@ -102,8 +103,9 @@ thread_init (void)
     {
       list_init(&ready_list[i]);
     }
-  
   list_init (&all_list);
+  // TODO initialize ready_thread_count
+  // ready_thread_count = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -145,6 +147,22 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
+
+  // TODO support mlfqs
+  // if (thread_mlfqs) 
+  //  {
+  //    // t->recent_cpu++;
+  //    if (timer_ticks % TIMER_FREQ == 0)
+  //      // recalculate load_avg
+  //      // TODO add static int to keep track of ready_threads
+  //      // recalculate recent cpu for every thread
+  //      // iterate over all_list using thread_foreach
+  //    if (timer_ticks % 4 /* TODO this is magic */)
+  //      // for each thread recalc priority (rounding down), ideally limited 
+  //      // to threads whose recent cpu has changed.
+  //      // change list to correct priority
+  //      // calibrate into PRI_MIN and PRI_MAX
+  //  }
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -253,8 +271,6 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  
-  // TODO push to appropriate
 
   add_to_ready_list (t);
   t->status = THREAD_READY;
@@ -494,11 +510,17 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  // TODO
+  // if (!thread_mlfqs)
   t->priority = priority;
+  // else
+  // t->priority = priorityformula
   t->donated_priority = 0;
   t->sleep_end = 0; // TODO verify this necessity
   t->magic = THREAD_MAGIC;
   t->blocked_on = NULL;
+  // TODO
+  // init niceness and recent_cpu
 
   list_init (&t->locks_held);
 
@@ -526,6 +548,7 @@ add_to_ready_list (struct thread *t)
   // TODO GNU Standardize
   int effective_priority = thread_get_effective_priority(t);
   list_push_back (&ready_list[effective_priority], &t->elem);
+  // TODO increment ready_thread_count
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -542,7 +565,9 @@ next_thread_to_run (void)
   for (i = PRI_MAX; i >= 0; i--)
     {
       if (!list_empty (&ready_list[i])) {
-        return list_entry (list_pop_front (&ready_list[i]), struct thread, elem);
+        // TODO decrement ready_thread_count
+        return list_entry (list_pop_front (&ready_list[i]), 
+                           struct thread, elem);
       }
     }
 

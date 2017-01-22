@@ -95,13 +95,13 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    // TODO add priority stuff:
-    //    way to detect if donated from another thread (bool?)
-    int donated_priority;
-    struct list locks_held;
-    struct lock *blocked_on;
-    //      this way another thread can donate priority to unblock
-    //    need we keep track of a lock that isi currently blocking? idrk
+    int donated_priority;               /* Donated priority. Always 0 if none. */ 
+    struct list locks_held;             /* List of all the locks held. */
+    struct lock *blocked_on;            /* List of blocking lock. */
+
+    // TODO 
+    // int nice;                           /* Niceness of the thread. */
+    // int recent_cpu                      /* Recent cpu usage. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -116,6 +116,9 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+// TODO maybe ?
+// extern int load_avg;
 
 void thread_init (void);
 void thread_start (void);
