@@ -23,7 +23,7 @@ fixed_point_down_to_int (fixed_point x)
 static inline int
 fixed_point_to_nearest_int (fixed_point x) 
 {
-	return x >= 0 ? x + F / 2 : x - F / 2;
+	return x >= 0 ? (x + F / 2) / F : (x - F / 2) / F;
 }
 
 static inline fixed_point 

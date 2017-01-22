@@ -112,9 +112,9 @@ thread_init (void)
     }
   list_init (&all_list);
 
-  ready_thread_count = 0;
+  ready_thread_count = 1;
   load_avg = fixed_point_from_int (0);
-
+  ASSERT(load_avg == 0);
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -144,8 +144,12 @@ recalculate_load_avg (void)
 {
   // TODO style this shit
   fixed_point adjusted_old_load_avg = fixed_point_divide_int (fixed_point_multiply_int (load_avg, 59), 60);
-  fixed_point load_avg_adjustment = fixed_point_divide_int (ready_thread_count, 60);
+  // printf("Ready Thread count %d\n", ready_thread_count);
+  fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
+  // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
+  printf("Just recalculated load_avg to %d\n", load_avg);
+  // ASSERT (1 == 0);
 }
 
 static void
@@ -488,7 +492,11 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  return fixed_point_to_nearest_int(fixed_point_multiply_int(load_avg, 100));
+  // printf("This is about to be converted and returned %d\n", (int)load_avg);
+  fixed_point x = fixed_point_multiply_int(load_avg, 100);
+  int y = fixed_point_to_nearest_int(x);
+  // fixed_point_to_nearest_int(fixed_point_multiply_int(load_avg, 100));
+  return y;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
