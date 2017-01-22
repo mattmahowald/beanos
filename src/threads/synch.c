@@ -52,7 +52,7 @@ sema_init (struct semaphore *sema, unsigned value)
 
 
 static bool 
-greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux) 
+greater_pri (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
   struct thread *A = list_entry (a, struct thread, elem);
   struct thread *B = list_entry (b, struct thread, elem);
@@ -395,7 +395,7 @@ cond_wait (struct condition *cond, struct lock *lock)
 
 
 static bool 
-highest_sema_pri (const struct list_elem *a, const struct list_elem *b, void *aux) 
+highest_sema_pri (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
   struct semaphore_elem *A = list_entry (a, struct semaphore_elem, elem);
   struct semaphore_elem *B = list_entry (b, struct semaphore_elem, elem);
