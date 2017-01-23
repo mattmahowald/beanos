@@ -100,7 +100,7 @@ timer_sleep (int64_t ticks)
 
   // TODO move struct into timer.c
   struct sleep_item sleeper;
-  sleeper.wake_time = start + ticks;;
+  sleeper.wake_time = start + ticks;
   sema_init (&sleeper.sema, 0);
 
   enum intr_level old_level;
@@ -191,6 +191,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   struct list_elem *cur;
+  
   for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {

@@ -148,7 +148,7 @@ recalculate_load_avg (void)
   fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
   // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
-  printf("Just recalculated load_avg to %d\n", load_avg);
+  // printf("Just recalculated load_avg to %d\n", load_avg);
   // ASSERT (1 == 0);
 }
 
@@ -192,13 +192,13 @@ thread_tick (void)
   if (thread_mlfqs) 
     {
       t->recent_cpu++;
-      if (kernel_ticks % TIMER_FREQ == 0)
+      if ((kernel_ticks + idle_ticks) % TIMER_FREQ == 0)
         {
           recalculate_load_avg ();
           thread_foreach(recalculate_recent_cpu, NULL);
         }
        // iterate over all_list using thread_foreach
-      if (kernel_ticks % 4 /* TODO this is magic */)
+      if ((kernel_ticks + idle_ticks) % 4 /* TODO this is magic */)
         thread_foreach(recalculate_mlfqs_priority, NULL);
        // ideally limited to threads whose recent cpu has changed.
      }
@@ -287,7 +287,6 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
-
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -366,6 +365,7 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
+  ready_thread_count--;
   schedule ();
   NOT_REACHED ();
 }
@@ -643,6 +643,7 @@ add_to_ready_list (struct thread *t)
   // TODO GNU Standardize
   int effective_priority = thread_get_effective_priority(t);
   list_push_back (&ready_list[effective_priority], &t->elem);
+  // printf("Pushed thread %s to ready list\n", t->name);
   ready_thread_count++;
 }
 
@@ -665,7 +666,7 @@ next_thread_to_run (void)
                            struct thread, elem);
       }
     }
-
+  ready_thread_count = 0;
   return idle_thread;
 
 }
