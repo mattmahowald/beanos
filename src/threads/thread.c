@@ -43,6 +43,8 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+static bool idl;
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -111,7 +113,7 @@ thread_init (void)
       list_init(&ready_list[i]);
     }
   list_init (&all_list);
-
+  idl = false;
   ready_thread_count = 0;
   load_avg = fixed_point_from_int (0);
   ASSERT(load_avg == 0);
@@ -138,6 +140,7 @@ thread_start (void)
 
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
+  idl = true;
   // ASSERT (ready_thread_count == 1);
 }
 
@@ -146,7 +149,7 @@ recalculate_load_avg (void)
 {
   // TODO style this shit
   fixed_point adjusted_old_load_avg = fixed_point_divide_int (fixed_point_multiply_int (load_avg, 59), 60);
-  printf("Ready Thread count %d\n", ready_thread_count);
+  // printf("Ready Thread count %d\n", ready_thread_count);
   fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
   // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
@@ -294,7 +297,7 @@ thread_block (void)
   //   {
   //     ready_thread_count--;
   //   }
-  if (thread_current ()->status != THREAD_BLOCKED && thread_current ()->status != THREAD_DYING /*&& strcmp(thread_current ()->name, "idle") != 0*/)
+  if (thread_current ()->status != THREAD_BLOCKED && thread_current ()->status != THREAD_DYING && strcmp(thread_current ()->name, "idle") != 0)
     ready_thread_count--;
   
   thread_current ()->status = THREAD_BLOCKED;
@@ -313,7 +316,10 @@ void
 thread_unblock (struct thread *t) 
 {
   enum intr_level old_level;
-
+  if (idl) {
+    ASSERT (strcmp(t->name, "idle") != 0);
+  }
+  
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
@@ -547,7 +553,7 @@ idle (void *idle_started_ UNUSED)
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
-  // ready_thread_count--;
+  ready_thread_count--;
   for (;;) 
     {
       /* Let someone else run. */
@@ -719,7 +725,7 @@ thread_schedule_tail (struct thread *prev)
   ASSERT (intr_get_level () == INTR_OFF);
 
   /* Mark us as running. */
-  if (cur->status != THREAD_READY && cur->status != THREAD_RUNNING)
+  if (cur->status != THREAD_READY && cur->status != THREAD_RUNNING && cur != idle_thread)
     ready_thread_count++;
   
   cur->status = THREAD_RUNNING;
