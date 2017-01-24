@@ -119,6 +119,7 @@ thread_init (void)
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
+  ready_thread_count++;
   initial_thread->tid = allocate_tid ();
 }
 
@@ -137,7 +138,7 @@ thread_start (void)
 
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
-  ASSERT (ready_thread_count == 1);
+  // ASSERT (ready_thread_count == 1);
 }
 
 static void 
@@ -168,7 +169,7 @@ recalculate_mlfqs_priority (struct thread *t, void *aux UNUSED)
   t->priority = mlfqs_get_priority (t);
   if (t->priority != old_priority && t->status == THREAD_READY) {
     list_remove (&t->elem);
-    ready_thread_count--;
+    // ready_thread_count--;
     add_to_ready_list (t);
   }
 }
@@ -293,6 +294,9 @@ thread_block (void)
   //   {
   //     ready_thread_count--;
   //   }
+  if (thread_current ()->status != THREAD_BLOCKED && thread_current ()->status != THREAD_DYING /*&& strcmp(thread_current ()->name, "idle") != 0*/)
+    ready_thread_count--;
+  
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -316,7 +320,11 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
 
   add_to_ready_list (t);
+  if (t->status != THREAD_RUNNING && t->status != THREAD_READY /*&& (strcmp(t->name, "idle") != 0)*/)
+    ready_thread_count++;
+
   t->status = THREAD_READY;
+
 
   intr_set_level (old_level);
 }
@@ -370,8 +378,11 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
+  if (thread_current ()->status != THREAD_DYING && thread_current ()->status != THREAD_BLOCKED)
+    ready_thread_count--;
+  
   thread_current ()->status = THREAD_DYING;
-  //ready_thread_count--;
+  
   schedule ();
   NOT_REACHED ();
 }
@@ -389,7 +400,12 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
     add_to_ready_list (cur);
+  
+  if (cur->status != THREAD_RUNNING && cur->status != THREAD_READY)
+    ready_thread_count++;
+  
   cur->status = THREAD_READY;
+  
   schedule ();
   intr_set_level (old_level);
 }
@@ -527,11 +543,11 @@ static void
 idle (void *idle_started_ UNUSED) 
 {
   // ASSERT (ready_thread_count == 1);
-  printf("ready count%d\n", ready_thread_count);
+  printf("ready count = %d\n", ready_thread_count);
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
-
+  // ready_thread_count--;
   for (;;) 
     {
       /* Let someone else run. */
@@ -598,6 +614,7 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (name != NULL);
 
   memset (t, 0, sizeof *t);
+  
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
@@ -651,7 +668,7 @@ add_to_ready_list (struct thread *t)
   // TODO GNU Standardize
   int effective_priority = thread_get_effective_priority(t);
   list_push_back (&ready_list[effective_priority], &t->elem);
-  ready_thread_count++;
+  // ready_thread_count++;
   // ASSERT(ready_thread_count > 0);
 }
 
@@ -702,8 +719,10 @@ thread_schedule_tail (struct thread *prev)
   ASSERT (intr_get_level () == INTR_OFF);
 
   /* Mark us as running. */
+  if (cur->status != THREAD_READY && cur->status != THREAD_RUNNING)
+    ready_thread_count++;
+  
   cur->status = THREAD_RUNNING;
-
   /* Start new time slice. */
   thread_ticks = 0;
 
@@ -745,7 +764,7 @@ schedule (void)
   if (cur != next)
    {
     if (cur->status != THREAD_READY && cur->status != THREAD_RUNNING) {
-      ready_thread_count--;
+      // ready_thread_count--;
     }
     prev = switch_threads (cur, next);
    }
