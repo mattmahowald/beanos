@@ -112,7 +112,7 @@ thread_init (void)
     }
   list_init (&all_list);
 
-  ready_thread_count = 1;
+  ready_thread_count = 2;
   load_avg = fixed_point_from_int (0);
   ASSERT(load_avg == 0);
   /* Set up a thread structure for the running thread. */
@@ -144,7 +144,7 @@ recalculate_load_avg (void)
 {
   // TODO style this shit
   fixed_point adjusted_old_load_avg = fixed_point_divide_int (fixed_point_multiply_int (load_avg, 59), 60);
-  // printf("Ready Thread count %d\n", ready_thread_count);
+  printf("Ready Thread count %d\n", ready_thread_count);
   fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
   // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
@@ -287,6 +287,10 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
+  // if (strcmp(thread_current ()->name, "idle") != 0)
+  //   {
+  //     ready_thread_count--;
+  //   }
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -365,7 +369,7 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
-  ready_thread_count--;
+  //ready_thread_count--;
   schedule ();
   NOT_REACHED ();
 }
@@ -643,8 +647,8 @@ add_to_ready_list (struct thread *t)
   // TODO GNU Standardize
   int effective_priority = thread_get_effective_priority(t);
   list_push_back (&ready_list[effective_priority], &t->elem);
-  // printf("Pushed thread %s to ready list\n", t->name);
   ready_thread_count++;
+  ASSERT(ready_thread_count > 0);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -661,12 +665,11 @@ next_thread_to_run (void)
   for (i = PRI_MAX; i >= 0; i--)
     {
       if (!list_empty (&ready_list[i])) {
-        ready_thread_count--;
+        // ready_thread_count--;
         return list_entry (list_pop_front (&ready_list[i]), 
                            struct thread, elem);
       }
     }
-  ready_thread_count = 0;
   return idle_thread;
 
 }
@@ -736,7 +739,14 @@ schedule (void)
   ASSERT (is_thread (next));
 
   if (cur != next)
+   {
     prev = switch_threads (cur, next);
+    if (strcmp(next->name, "idle") != 0)
+      ready_thread_count--;
+   }
+
+  // else if (strcmp(next->name, "idle") != 0)
+  //   ready_thread_count--;
   thread_schedule_tail (prev);
 }
 
