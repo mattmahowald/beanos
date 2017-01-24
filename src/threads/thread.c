@@ -112,7 +112,7 @@ thread_init (void)
     }
   list_init (&all_list);
 
-  ready_thread_count = 2;
+  ready_thread_count = 0;
   load_avg = fixed_point_from_int (0);
   ASSERT(load_avg == 0);
   /* Set up a thread structure for the running thread. */
@@ -137,6 +137,7 @@ thread_start (void)
 
   /* Wait for the idle thread to initialize idle_thread. */
   sema_down (&idle_started);
+  ASSERT (ready_thread_count == 1);
 }
 
 static void 
@@ -235,6 +236,7 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
+  printf("Creatig %s\n", name);
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -524,6 +526,8 @@ thread_get_recent_cpu (void)
 static void
 idle (void *idle_started_ UNUSED) 
 {
+  // ASSERT (ready_thread_count == 1);
+  printf("ready count%d\n", ready_thread_count);
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
@@ -648,7 +652,7 @@ add_to_ready_list (struct thread *t)
   int effective_priority = thread_get_effective_priority(t);
   list_push_back (&ready_list[effective_priority], &t->elem);
   ready_thread_count++;
-  ASSERT(ready_thread_count > 0);
+  // ASSERT(ready_thread_count > 0);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -740,10 +744,15 @@ schedule (void)
 
   if (cur != next)
    {
-    prev = switch_threads (cur, next);
-    if (strcmp(next->name, "idle") != 0)
+    if (cur->status != THREAD_READY && cur->status != THREAD_RUNNING) {
       ready_thread_count--;
+    }
+    prev = switch_threads (cur, next);
    }
+  // else if (strcmp(cur->name, "idle") != 0)
+  // {  
+  //   ready_thread_count--;
+  // } 
 
   // else if (strcmp(next->name, "idle") != 0)
   //   ready_thread_count--;
