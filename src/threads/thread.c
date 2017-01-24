@@ -59,6 +59,7 @@ static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
 static fixed_point load_avg;
+static int blocks;
 
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
@@ -116,6 +117,7 @@ thread_init (void)
   idl = false;
   ready_thread_count = 0;
   load_avg = fixed_point_from_int (0);
+  blocks = 0;
   ASSERT(load_avg == 0);
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -149,7 +151,7 @@ recalculate_load_avg (void)
 {
   // TODO style this shit
   fixed_point adjusted_old_load_avg = fixed_point_divide_int (fixed_point_multiply_int (load_avg, 59), 60);
-  // printf("Ready Thread count %d\n", ready_thread_count);
+  // printf("Ready Thread count %d Blocks %d\n", ready_thread_count, blocks);
   fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
   // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
@@ -163,18 +165,24 @@ recalculate_recent_cpu (struct thread *t, void *aux UNUSED)
   fixed_point x = fixed_point_multiply_int (load_avg, 2);
   fixed_point coeffecient = fixed_point_divide (x, fixed_point_add_int (x, 1));
   t->recent_cpu = fixed_point_add (fixed_point_multiply (coeffecient, t->recent_cpu), t->nice);
+  t->recent = true;
 }
 
 static void
 recalculate_mlfqs_priority (struct thread *t, void *aux UNUSED)
 {
-  int old_priority = t->priority;
-  t->priority = mlfqs_get_priority (t);
-  if (t->priority != old_priority && t->status == THREAD_READY) {
-    list_remove (&t->elem);
-    // ready_thread_count--;
-    add_to_ready_list (t);
-  }
+  if (t->recent) 
+    {
+      int old_priority = t->priority;
+      t->priority = mlfqs_get_priority (t);
+      if (t->priority != old_priority && t->status == THREAD_READY) {
+        list_remove (&t->elem);
+        // ready_thread_count--;
+        add_to_ready_list (t);
+      }
+    }
+    t->recent = false;
+
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -194,6 +202,7 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  t->recent = true;
   if (thread_mlfqs) 
     {
       t->recent_cpu++;
@@ -203,9 +212,24 @@ thread_tick (void)
           thread_foreach(recalculate_recent_cpu, NULL);
         }
        // iterate over all_list using thread_foreach
-      if ((kernel_ticks + idle_ticks) % 4 /* TODO this is magic */)
+      if ((kernel_ticks + idle_ticks) % 4 == 0 /*TODO this is magic */)
+         {
+          //   struct list_elem *e;
+
+          // ASSERT (intr_get_level () == INTR_OFF);
+
+          // for (e = list_begin (&all_list); e != list_end (&all_list);
+          //     e = list_next (e))
+          //   {
+          //     struct thread *t = list_entry (e, struct thread, allelem);
+          //     if (t->recent)
+          //       recalculate_mlfqs_priority (t, NULL);
+          //   }
+          // }
+
         thread_foreach(recalculate_mlfqs_priority, NULL);
-       // ideally limited to threads whose recent cpu has changed.
+      }
+      //  ideally limited to threads whose recent cpu has changed.
      }
 
   /* Enforce preemption. */
@@ -240,7 +264,7 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
-  printf("Creatig %s\n", name);
+  // printf("Creatig %s\n", name);
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -298,7 +322,11 @@ thread_block (void)
   //     ready_thread_count--;
   //   }
   if (thread_current ()->status != THREAD_BLOCKED && thread_current ()->status != THREAD_DYING && strcmp(thread_current ()->name, "idle") != 0)
-    ready_thread_count--;
+    {
+      blocks++;
+      ready_thread_count--;
+    }
+
   
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
@@ -549,7 +577,7 @@ static void
 idle (void *idle_started_ UNUSED) 
 {
   // ASSERT (ready_thread_count == 1);
-  printf("ready count = %d\n", ready_thread_count);
+  printf("idle ready count = %d\n should be 0", ready_thread_count);
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
@@ -629,6 +657,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->sleep_end = 0; // TODO verify this necessity
   t->magic = THREAD_MAGIC;
   t->blocked_on = NULL;
+  t->recent = false;
   if (thread_mlfqs)
     {
       if (strcmp(name, "main") != 0)

@@ -106,6 +106,7 @@ struct thread
     // TODO 
     fixed_point nice;                           /* Niceness of the thread. */
     fixed_point recent_cpu;                     /* Recent cpu usage. */
+    bool recent;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
