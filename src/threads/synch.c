@@ -226,7 +226,7 @@ lock_acquire (struct lock *lock)
 
   // TODO if (lock->holder != NULL) 
   //    get holder, set donated to my highest priority
-  if (lock->holder != NULL/* && !thread_mlfqs*/) 
+  if (lock->holder != NULL && !thread_mlfqs) 
     {
     //TODO GNU STANDARD
       int priority_to_donate = thread_get_effective_priority (thread_current ());
@@ -298,7 +298,7 @@ lock_release (struct lock *lock)
 
   // TODO This worries me... using thread_current a ton vs storing.
   struct thread *cur_thread = thread_current ();
-  if (thread_current ()->donated_priority != 0 /*&& !thread_mlfqs*/)
+  if (thread_current ()->donated_priority != 0 && !thread_mlfqs)
     {
       struct list *locks_held = &cur_thread->locks_held;
       struct list_elem *lock_e;
