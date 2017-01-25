@@ -99,13 +99,15 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Statistics to manage priority donation. */
     int donated_priority;               /* Donated priority. Always 0 if none. */ 
     struct list locks_held;             /* List of all the locks held. */
     struct lock *blocked_on;            /* List of blocking lock. */
 
-    // TODO 
-    fixed_point nice;                           /* Niceness of the thread. */
-    fixed_point recent_cpu;                     /* Recent cpu usage. */
+    /* Statistics to manage MLFQS. */
+    fixed_point nice;                   /* Niceness of the thread. */
+    fixed_point recent_cpu;             /* Recent cpu usage. */
+    bool recent_cpu_changed;            /* True if cpu changed in the last second. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -120,9 +122,6 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
-// TODO maybe ?
-// extern int load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -149,7 +148,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-int thread_get_effective_priority(struct thread *t);
+int thread_get_priority_of (struct thread *t);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

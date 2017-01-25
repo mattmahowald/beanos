@@ -148,7 +148,9 @@ load_thread (void *aux UNUSED)
   int64_t exit_time = spin_time + 60 * TIMER_FREQ;
 
   thread_set_nice (20);
+  printf("about to sleep for %d\n", (int)(sleep_time - timer_elapsed (start_time)));
   timer_sleep (sleep_time - timer_elapsed (start_time));
+  printf("just woke up yolo\n");
   while (timer_elapsed (start_time) < spin_time)
     continue;
   timer_sleep (exit_time - timer_elapsed (start_time));
