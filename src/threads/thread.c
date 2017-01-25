@@ -559,7 +559,6 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  recalculate_recent_cpu (thread_current (), NULL);
   return fixed_point_to_nearest_int(fixed_point_multiply_int(
                                          thread_current ()->recent_cpu, 100));
 }
