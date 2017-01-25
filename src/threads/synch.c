@@ -209,6 +209,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->priority = 0;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -231,10 +232,14 @@ lock_acquire (struct lock *lock)
   if (lock->holder != NULL && !thread_mlfqs) 
     {
       int priority_to_donate = thread_get_priority_of (thread_current ());
+      if (priority_to_donate > lock->priority) 
+        lock->priority = priority_to_donate;
+      
       struct lock *l = lock;
       while (l != NULL) 
         {
           l->holder->donated_priority = priority_to_donate;
+          l->priority = priority_to_donate;
           l = l->holder->blocked_on;
         }
       thread_current ()->blocked_on = lock;
@@ -298,16 +303,25 @@ lock_release (struct lock *lock)
            lock_e = list_next (lock_e))
         {
           struct lock *cur_lock = list_entry (lock_e, struct lock, elem);
-          struct list_elem *e;
-          struct list *waiters = &cur_lock->semaphore.waiters;
-          for (e = list_begin(waiters); e != list_end(waiters); e = list_next(e)) {
-              struct thread *t = list_entry (e, struct thread, elem);
-              int effective_priority = thread_get_priority_of(t);
-              if (highest_priority < effective_priority)
-                highest_priority = effective_priority;
-            }
+          if (highest_priority < cur_lock->priority)
+            highest_priority = cur_lock->priority;
         }
     }
+
+  if (lock->priority == thread_get_priority ())
+    {
+          struct list_elem *e;
+          struct list *waiters = &lock->semaphore.waiters;
+          lock->priority = 0;
+          for (e = list_begin(waiters); e != list_end(waiters); e = list_next(e)) 
+            {
+              struct thread *t = list_entry (e, struct thread, elem);
+              int effective_priority = thread_get_priority_of(t);
+              if (lock->priority < effective_priority)
+                lock->priority = effective_priority;
+            }
+    }
+
   cur_thread->donated_priority = highest_priority < cur_thread->priority 
                                  ? 0 : highest_priority;
   sema_up (&lock->semaphore);
