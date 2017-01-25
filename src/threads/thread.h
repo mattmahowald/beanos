@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 #include "threads/synch.h"
 
 /* States in a thread's life cycle. */
@@ -24,6 +25,9 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define NICE_MIN -20
+#define NICE_MAX 20
+
 
 /* A kernel thread or user process.
 
@@ -95,13 +99,15 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    // TODO add priority stuff:
-    //    way to detect if donated from another thread (bool?)
-    int donated_priority;
-    struct list locks_held;
-    struct lock *blocked_on;
-    //      this way another thread can donate priority to unblock
-    //    need we keep track of a lock that isi currently blocking? idrk
+    /* Statistics to manage priority donation. */
+    int donated_priority;               /* Donated priority. Always 0 if none. */ 
+    struct list locks_held;             /* List of all the locks held. */
+    struct lock *blocked_on;            /* List of blocking lock. */
+
+    /* Statistics to manage MLFQS. */
+    fixed_point nice;                   /* Niceness of the thread. */
+    fixed_point recent_cpu;             /* Recent cpu usage. */
+    bool recent_cpu_changed;            /* True if cpu changed in the last second. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -142,7 +148,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-int thread_get_effective_priority(struct thread *t);
+int thread_get_priority_of (struct thread *t);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
