@@ -151,7 +151,7 @@ recalculate_load_avg (void)
 {
   // TODO style this shit
   fixed_point adjusted_old_load_avg = fixed_point_divide_int (fixed_point_multiply_int (load_avg, 59), 60);
-  // printf("Ready Thread count %d Blocks %d\n", ready_thread_count, blocks);
+  // printf("Adjusting load avg... Ready Thread count %d Blocks = %d\n", ready_thread_count, blocks);
   fixed_point load_avg_adjustment = fixed_point_divide_int (fixed_point_from_int (ready_thread_count), 60);
   // printf("Load adjustment is %d\n", load_avg_adjustment);
   load_avg = fixed_point_add (adjusted_old_load_avg, load_avg_adjustment);
@@ -355,7 +355,10 @@ thread_unblock (struct thread *t)
 
   add_to_ready_list (t);
   if (t->status != THREAD_RUNNING && t->status != THREAD_READY /*&& (strcmp(t->name, "idle") != 0)*/)
-    ready_thread_count++;
+    {
+      ready_thread_count++;
+      blocks--;
+    }
 
   t->status = THREAD_READY;
 

@@ -93,25 +93,27 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+  struct sleep_item sleeper;
+
   if (ticks <= 0)
     return;
 
   int64_t start = timer_ticks ();
+  sleeper.wake_time = start + ticks;
 
   // TODO move struct into timer.c
-  struct sleep_item sleeper;
-  sleeper.wake_time = start + ticks;
-  sema_init (&sleeper.sema, 0);
+  sleeper.t = thread_current ();
+  // sema_init (&sleeper.sema, 0);
 
   enum intr_level old_level;
   old_level = intr_disable ();  
   list_push_back (&wake_list, &sleeper.elem);
-  intr_set_level (old_level);
+  // intr_set_level (old_level);
 
-  sema_down (&sleeper.sema);
+  // sema_down (&sleeper.sema);
  
-  old_level = intr_disable ();
-  list_remove (&sleeper.elem);
+  // old_level = intr_disable ();
+  thread_block();
   intr_set_level (old_level);
 }
 
@@ -191,13 +193,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   struct list_elem *cur;
-  
+
   for (cur = list_begin (&wake_list); cur != list_end (&wake_list); 
        cur = list_next (cur))
     {
       struct sleep_item *sleeper = list_entry (cur, struct sleep_item, elem);
-      if (sleeper->wake_time <= ticks)
-        sema_up (&sleeper->sema);
+      if (timer_elapsed(sleeper->wake_time) >= 0)
+      {
+        list_remove (&sleeper->elem);
+        thread_unblock (sleeper->t);
+      }
+        // sema_up (&sleeper->sema);
     }
   thread_tick ();
 }

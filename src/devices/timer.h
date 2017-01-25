@@ -29,7 +29,7 @@ void timer_print_stats (void);
 
 struct sleep_item
 	{
-		struct semaphore sema;
+	struct thread *t;
     int64_t wake_time; 
     struct list_elem elem;
 	};
