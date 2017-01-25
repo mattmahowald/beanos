@@ -99,9 +99,8 @@ timer_elapsed (int64_t then)
 static bool 
 earlier_wake (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
-  struct sleep_item *A = list_entry (a, struct sleep_item, elem);
-  struct sleep_item *B = list_entry (b, struct sleep_item, elem);
-  return  A->wake_time > B->wake_time;
+  return  list_entry (a, struct sleep_item, elem)->wake_time >
+    list_entry (b, struct sleep_item, elem)->wake_time;
 }
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
