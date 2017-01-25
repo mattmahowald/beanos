@@ -205,7 +205,7 @@ thread_tick (void)
   t->recent = true;
   if (thread_mlfqs) 
     {
-      t->recent_cpu++;
+      t->recent_cpu = fixed_point_add_int(t->recent_cpu, 1);
       if ((kernel_ticks + idle_ticks) % TIMER_FREQ == 0)
         {
           recalculate_load_avg ();
@@ -541,7 +541,7 @@ thread_set_nice (int nice)
 int
 thread_get_nice (void) 
 {
-  return fixed_point_to_nearest_int(thread_current ()->nice);
+  return fixed_point_down_to_int(thread_current ()->nice) * 100;
 }
 
 /* Returns 100 times the system load average. */
@@ -559,7 +559,7 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  // TODO fix this style
+  recalculate_recent_cpu (thread_current (), NULL);
   return fixed_point_to_nearest_int(fixed_point_multiply_int(
                                          thread_current ()->recent_cpu, 100));
 }
