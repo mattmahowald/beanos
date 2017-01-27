@@ -99,7 +99,7 @@ timer_elapsed (int64_t then)
 static bool 
 earlier_wake (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
-  return  list_entry (a, struct sleep_item, elem)->wake_time >
+  return  list_entry (a, struct sleep_item, elem)->wake_time <
     list_entry (b, struct sleep_item, elem)->wake_time;
 }
 
@@ -113,7 +113,7 @@ timer_sleep (int64_t ticks)
   if (ticks <= 0)
     return;
 
-  // ASSERT (intr_get_level () == INTR_ON);
+  ASSERT (intr_get_level () == INTR_ON);
 
   int64_t start = timer_ticks ();
   sleeper.wake_time = start + ticks;
@@ -213,7 +213,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
         }
       else
         {
-          continue;
+          /* As sorted, each following thread will not need to be woken. */
+          break;
         }
     }
   thread_tick ();
