@@ -96,6 +96,13 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+static bool 
+earlier_wake (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+  return  list_entry (a, struct sleep_item, elem)->wake_time <
+    list_entry (b, struct sleep_item, elem)->wake_time;
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
@@ -114,7 +121,7 @@ timer_sleep (int64_t ticks)
 
   enum intr_level old_level;
   old_level = intr_disable ();  
-  list_push_back (&sleep_list, &sleeper.elem);
+  list_insert_ordered (&sleep_list, &sleeper.elem, earlier_wake, NULL);
   thread_block();
   intr_set_level (old_level);
 }
@@ -200,10 +207,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
       struct sleep_item *sleeper = list_entry (cur, struct sleep_item, elem);
       /* Wake up if wake_time has passed. */
       if (timer_elapsed(sleeper->wake_time) >= 0)
-      {
-        list_remove (&sleeper->elem);
-        thread_unblock (sleeper->t);
-      }
+        {
+          list_remove (&sleeper->elem);
+          thread_unblock (sleeper->t);
+        }
+      else
+        {
+          /* As sorted, each following thread will not need to be woken. */
+          break;
+        }
     }
   thread_tick ();
 }

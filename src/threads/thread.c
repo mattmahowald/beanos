@@ -59,6 +59,8 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* MLFQS load average. */
 static fixed_point load_avg;
 
+static fixed_point recent_cpu_coefficient;
+
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -81,6 +83,7 @@ static void add_to_ready_list (struct thread *);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static void recalculate_load_avg (void);
+static void recalculate_recent_cpu_coefficient (void);
 static void recalculate_recent_cpu (struct thread *, void *);
 static void recalculate_mlfqs_priority (struct thread *, void *);
 static int mlfqs_get_priority (struct thread *);
@@ -114,13 +117,15 @@ thread_init (void)
   list_init (&all_list);
   ready_thread_count = 0;
   load_avg = fixed_point_from_int (0);
+  recent_cpu_coefficient = fixed_point_from_int (0);
+
   ASSERT(load_avg == 0);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
-  // TODO: this is a potential issue
+
   ready_thread_count++;
   initial_thread->tid = allocate_tid ();
 }
@@ -152,15 +157,21 @@ recalculate_load_avg (void)
   load_avg = fixed_point_add (old_load_avg, load_avg_adjustment);
 }
 
+static void
+recalculate_recent_cpu_coefficient (void)
+{
+  fixed_point x = fixed_point_multiply_int (load_avg, 2);
+  recent_cpu_coefficient = fixed_point_divide (x, fixed_point_add_int (x, 1));
+}
+
+
 /* Recalculates recent_cpu value for given thread T. */
 static void
 recalculate_recent_cpu (struct thread *t, void *aux UNUSED)
 {
   // TODO style this shit
-  fixed_point x = fixed_point_multiply_int (load_avg, 2);
-  fixed_point coeffecient = fixed_point_divide (x, fixed_point_add_int (x, 1));
   fixed_point old_recent_cpu = t->recent_cpu;
-  t->recent_cpu = fixed_point_add (fixed_point_multiply (coeffecient, 
+  t->recent_cpu = fixed_point_add (fixed_point_multiply (recent_cpu_coefficient, 
                                                          t->recent_cpu), 
                                    t->nice);
   t->recent_cpu_changed = old_recent_cpu != t->recent_cpu;
@@ -211,6 +222,8 @@ thread_tick (void)
       if ((kernel_ticks + idle_ticks) % TIMER_FREQ == 0)
         {
           recalculate_load_avg ();
+          recalculate_recent_cpu_coefficient ();
+
           thread_foreach(recalculate_recent_cpu, NULL);
         }
 
