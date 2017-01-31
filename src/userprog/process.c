@@ -51,6 +51,8 @@ static void
 start_process (void *cmdline_)
 {
   char *cmdline = cmdline_;
+  // TODO Remove
+  printf("%s\n", cmdline);
   struct intr_frame if_;
   bool success;
 
@@ -449,27 +451,29 @@ setup_stack (void **esp, char *cmdline)
             {
               size_t token_len = strlen (token);
               /* Decrement by extra char ensures null terminator. */
-              esp = (void **) (*(char **) esp - token_len - sizeof (char));
+              *esp = (void *) (*(char **) esp - token_len - sizeof (char));
               strlcpy (*esp, token, token_len);
               argv[argc] = *esp;
               argc++;
             }
         
           /* Decrement esp to nearest multiple of four bytes. */
-          *esp = (int) *(char **) esp & -4;   
+          *esp = (void *) ((uintptr_t) *esp & -4);
           /* Push null terminator for argv. */
-          esp--;
+          (*esp)--;
 
           int i;
-          for (i = argc - 1; i >= 0; i--)
-            memcpy (--esp, argv[i], sizeof (void *));
+          for (i = argc - 1; i >= 0; i--) {
+            printf("%s\n", argv[i]);
+            memcpy (--(*esp), argv[i], sizeof (void *));
+          }
 
           /* Push pointer to argv[0]. */
           memcpy (esp - 1, esp, sizeof (void *));
-          esp--;
+          (*esp)--;
 
           /* Push argc. */
-          *--esp = argc;
+          *(int *) --(*esp) = argc;
         } 
       else
         palloc_free_page (kpage);
