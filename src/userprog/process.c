@@ -306,9 +306,13 @@ load (char *cmdline, void (**eip) (void), void **esp)
   printf ("checkpoint\n");
 
   /* Set up stack. */
+<<<<<<< HEAD
   // TODO remove shit
   if (!setup_stack (esp, cmdline)) {
     printf("Stack not setup\n");
+=======
+  if (!setup_stack (esp, cmdline))
+>>>>>>> 95585d4f8757f1cc6f83b76addb5d35ea4cc59ac
     goto done;
   }
   printf("Stack setup\n");
@@ -449,10 +453,14 @@ setup_stack (void **esp, char *cmdline)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         {
+<<<<<<< HEAD
           printf("setup_stack: Setup stack initiating ... tokenizing\n");
           *esp = PHYS_BASE;
           printf("setup_stack: esp now points to %p == PHYS BASE (%p)\n", *esp, PHYS_BASE);
 
+=======
+          *esp = PHYS_BASE;
+>>>>>>> 95585d4f8757f1cc6f83b76addb5d35ea4cc59ac
           char *token, *save_ptr, *argv[64];
           size_t argc = 0;
           
@@ -461,6 +469,7 @@ setup_stack (void **esp, char *cmdline)
           for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL;
                token = strtok_r (NULL, " ", &save_ptr))
             {
+<<<<<<< HEAD
               int token_len = strlen (token);
               printf ("setup_stack: token len is %d\n", token_len);
               /* Decrement by extra char ensures null terminator. */
@@ -498,6 +507,33 @@ setup_stack (void **esp, char *cmdline)
           /* Push argc. */
           *esp = *(int **) esp - 1;
           *(int *) (*esp) = argc;
+=======
+              size_t token_len = strlen (token);
+              /* Decrement by extra char ensures null terminator. */
+              *esp = (void *) (*(char **) esp - token_len - sizeof (char));
+              strlcpy (*esp, token, token_len);
+              argv[argc] = *esp;
+              argc++;
+            }
+        
+          /* Decrement esp to nearest multiple of four bytes. */
+          *esp = (void *) ((uintptr_t) *esp & -4);
+          /* Push null terminator for argv. */
+          (*esp)--;
+
+          int i;
+          for (i = argc - 1; i >= 0; i--) {
+            printf("%s\n", argv[i]);
+            memcpy (--(*esp), argv[i], sizeof (void *));
+          }
+
+          /* Push pointer to argv[0]. */
+          memcpy (esp - 1, esp, sizeof (void *));
+          (*esp)--;
+
+          /* Push argc. */
+          *(int *) --(*esp) = argc;
+>>>>>>> 95585d4f8757f1cc6f83b76addb5d35ea4cc59ac
         } 
       else
         palloc_free_page (kpage);
