@@ -449,7 +449,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
-  // TODO
+  // TODO remove this shit
   printf("setup_stack: Setup stack called\n");
   printf("setup_stack: esp at address %p\n", esp);
   uint8_t *kpage;
@@ -502,11 +502,10 @@ setup_stack (void **esp, char *cmdline)
           }
 
           /* Push pointer to argv[0]. */
-          void *argv_base = *esp;
-          printf("Base of argv is %p\n", argv_base);
+          void **argv_base = esp;
           *esp = *(uintptr_t **) esp - 1;
           memcpy (*esp, argv_base, sizeof (uintptr_t));
-          // printf("current esp is %p. Should be %p\n", *(void **)*esp, argv_base);
+          
           /* Push argc. */
           *esp = *(uintptr_t **) esp - 1;
           *(int *) (*esp) = argc;
