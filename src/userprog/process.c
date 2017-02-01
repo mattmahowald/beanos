@@ -18,6 +18,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAX_ARGS 64
+
+
 static thread_func start_process NO_RETURN;
 static bool load (char *cmdline, void (**eip) (void), void **esp);
 
@@ -438,20 +441,34 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-// static bool
-// validate_stack (void **final_esp, char *cmdline)
-// {
+static size_t
+push_args_to_stack (void **esp, char *cmdline, 
+                    uintptr_t (*argv)[MAX_ARGS], size_t *bytes_used)
+{
+  char *token, *save_ptr;
+  size_t argc = 0;
+  for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+    {
+      int token_len = strlen (token);
+      *bytes_used += token_len + 1;
+      if (*bytes_used > PGSIZE)
+        break;
+      /* Decrement by extra char ensures null terminator. */
+      *esp = (void *) (*(char **) esp - (token_len + sizeof (char)));
+      strlcpy (*esp, token, token_len + 1);
+      (*argv)[argc] = *(uintptr_t *)esp;
+      argc++;
 
-// }
+    }
+  return argc;
+}
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
-  // TODO remove this shit
-  printf("setup_stack: Setup stack called\n");
-  printf("setup_stack: esp at address %p\n", esp);
   uint8_t *kpage;
   bool success = false;
 
@@ -461,42 +478,28 @@ setup_stack (void **esp, char *cmdline)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         {
-          printf("setup_stack: Setup stack initiating ... tokenizing\n");
           *esp = PHYS_BASE;
-          printf("setup_stack: esp now points to %p == PHYS BASE (%p)\n", *esp, PHYS_BASE);
-          char *token, *save_ptr;
-          uintptr_t argv[64];
-          size_t argc = 0;
+          uintptr_t argv[MAX_ARGS];
+          size_t bytes_used = 0;
           
           // TODO handle overflowing the stack
+          size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
 
-          for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL;
-               token = strtok_r (NULL, " ", &save_ptr))
-            {
-              int token_len = strlen (token);
-              // printf ("setup_stack: token len is %d\n", token_len);
-              /* Decrement by extra char ensures null terminator. */
-              *esp = (void *) (*(char **) esp - (token_len + sizeof (char)));
-              strlcpy (*esp, token, token_len + 1);
-              printf("setup_stack: %s at address %p\n", *(char **) esp, *(uintptr_t **)esp);
-              argv[argc] = *(uintptr_t *)esp;
-              argc++;
-            }
-          printf("setup_stack: esp now points to %p\n", *esp);
-          
           /* Decrement esp to nearest multiple of four bytes. */
+          bytes_used += (int) *esp % 4;
+          if (bytes_used + sizeof(uintptr_t) * (argc + 4) > PGSIZE)
+            {
+              palloc_free_page (kpage);
+              return false;
+            }
+
           *esp = (void *) ((uintptr_t) *esp & -4);
-          printf("setup_stack: adjusting to a multiple of 4...\n");
-
-          printf("setup_stack: esp now points to %p\n", *esp);
-
+          
           /* Push null terminator for argv. */
-          *esp = *(int **) esp - 1;
-          printf("setup_stack: esp now points to %p\n", *esp);
-          memset (*esp, 0, sizeof(uint32_t));
+          *esp = *(uintptr_t **) esp - 1;
+          memset (*esp, 0, sizeof(uintptr_t));
           int i;
           for (i = argc - 1; i >= 0; i--) {
-            // printf("setup_stack: %s\n", argv[i]);
             *esp = *(uintptr_t **) esp - 1;
             memcpy (*esp, &argv[i], sizeof (uintptr_t));
           }
@@ -512,8 +515,7 @@ setup_stack (void **esp, char *cmdline)
 
           /* Push return address space. */
           *esp = *(uintptr_t **) esp - 1;
-          printf("setup_stack complete: final esp now points to %p\n", *esp);
-          hex_dump(*(uintptr_t *)esp, *esp, 8 *sizeof(void *), true);
+          // hex_dump(*(uintptr_t *)esp, *esp, 8 *sizeof(void *), true);
         } 
       else
         palloc_free_page (kpage);
