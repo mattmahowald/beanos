@@ -306,13 +306,9 @@ load (char *cmdline, void (**eip) (void), void **esp)
   printf ("checkpoint\n");
 
   /* Set up stack. */
-<<<<<<< HEAD
   // TODO remove shit
   if (!setup_stack (esp, cmdline)) {
     printf("Stack not setup\n");
-=======
-  if (!setup_stack (esp, cmdline))
->>>>>>> 95585d4f8757f1cc6f83b76addb5d35ea4cc59ac
     goto done;
   }
   printf("Stack setup\n");
@@ -502,6 +498,8 @@ setup_stack (void **esp, char *cmdline)
           *esp = *(int **) esp - 1;
           *(int *) (*esp) = argc;
 
+          /* Push return address space. */
+          *esp = *(int **) esp - 1;
         } 
       else
         palloc_free_page (kpage);
