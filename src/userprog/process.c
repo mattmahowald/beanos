@@ -481,7 +481,6 @@ setup_stack (void **esp, char *cmdline)
           *esp = *(int **) esp - 1;
           printf("setup_stack: esp now points to %p\n", *esp);
           memset (*esp, 0, sizeof(uint32_t));
-          printf("setup_stack: At this location: %u\n", *(uint32_t *) *esp);
           int i;
           for (i = argc - 1; i >= 0; i--) {
             printf("setup_stack: %s\n", argv[i]);
@@ -500,6 +499,7 @@ setup_stack (void **esp, char *cmdline)
 
           /* Push return address space. */
           *esp = *(int **) esp - 1;
+          printf("setup_stack complete: final esp now points to %p\n", *esp);
         } 
       else
         palloc_free_page (kpage);
