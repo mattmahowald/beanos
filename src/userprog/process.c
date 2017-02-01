@@ -217,7 +217,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-    
+
   // TODO this is janky, talk to TA
   char cmd_copy[strlen(cmdline) + 1];
   char *filename, *save_ptr;
@@ -438,6 +438,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
+// static bool
+// validate_stack (void **final_esp, char *cmdline)
+// {
+
+// }
+
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
@@ -458,7 +464,8 @@ setup_stack (void **esp, char *cmdline)
           printf("setup_stack: Setup stack initiating ... tokenizing\n");
           *esp = PHYS_BASE;
           printf("setup_stack: esp now points to %p == PHYS BASE (%p)\n", *esp, PHYS_BASE);
-          char *token, *save_ptr, *argv[64];
+          char *token, *save_ptr;
+          uintptr_t argv[64];
           size_t argc = 0;
           
           // TODO handle overflowing the stack
@@ -467,12 +474,12 @@ setup_stack (void **esp, char *cmdline)
                token = strtok_r (NULL, " ", &save_ptr))
             {
               int token_len = strlen (token);
-              printf ("setup_stack: token len is %d\n", token_len);
+              // printf ("setup_stack: token len is %d\n", token_len);
               /* Decrement by extra char ensures null terminator. */
               *esp = (void *) (*(char **) esp - (token_len + sizeof (char)));
               strlcpy (*esp, token, token_len + 1);
-              printf("setup_stack: %s\n", *(char **) esp);
-              argv[argc] = *esp;
+              printf("setup_stack: %s at address %p\n", *(char **) esp, *(uintptr_t **)esp);
+              argv[argc] = *(uintptr_t *)esp;
               argc++;
             }
           printf("setup_stack: esp now points to %p\n", *esp);
@@ -489,23 +496,24 @@ setup_stack (void **esp, char *cmdline)
           memset (*esp, 0, sizeof(uint32_t));
           int i;
           for (i = argc - 1; i >= 0; i--) {
-            printf("setup_stack: %s\n", argv[i]);
-            *esp = *(int **) esp - 1;
-            memcpy (*esp, argv[i], sizeof (void *));
+            // printf("setup_stack: %s\n", argv[i]);
+            *esp = *(uintptr_t **) esp - 1;
+            memcpy (*esp, &argv[i], sizeof (uintptr_t));
           }
 
           /* Push pointer to argv[0]. */
           void *argv_base = *esp;
-          *esp = *(int **) esp - 1;
-          memcpy (*esp, argv_base, sizeof (void *));
-
+          *esp = *(uintptr_t **) esp - 1;
+          memcpy (*esp, argv_base, sizeof (uintptr_t));
+          printf("current esp is %p. Should be %p\n", *(void **)*esp, argv_base);
           /* Push argc. */
-          *esp = *(int **) esp - 1;
+          *esp = *(uintptr_t **) esp - 1;
           *(int *) (*esp) = argc;
 
           /* Push return address space. */
-          *esp = *(int **) esp - 1;
+          *esp = *(uintptr_t **) esp - 1;
           printf("setup_stack complete: final esp now points to %p\n", *esp);
+          hex_dump(*(uintptr_t *)esp, *esp, 8 *sizeof(void *), true);
         } 
       else
         palloc_free_page (kpage);
