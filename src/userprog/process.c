@@ -217,6 +217,12 @@ load (char *cmdline, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+    
+  // TODO this is janky, talk to TA
+  char cmd_copy[strlen(cmdline) + 1];
+  char *filename, *save_ptr;
+  strlcpy (cmd_copy, cmdline, strlen(cmdline) + 1);
+  filename = strtok_r (cmd_copy, " ", &save_ptr);
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -224,8 +230,8 @@ load (char *cmdline, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
-  /* Open executable file. */
-  file = filesys_open (cmdline);
+  /* Open executable file. */  
+  file = filesys_open (filename);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", cmdline);
