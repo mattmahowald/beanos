@@ -110,7 +110,7 @@ sys_write (void *esp/* int fd, const void *buffer, uint32_t size */)
 		{
 			printf("about to pit buf of size %d\n", (int)size);
 			printf("%s\n", (char *)buffer);
-			putbuf (*(char **)buffer, size);
+			putbuf (buffer, size);
 		}
 	else
 		thread_exit ();	

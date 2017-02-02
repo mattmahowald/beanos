@@ -504,10 +504,9 @@ setup_stack (void **esp, char *cmdline)
             memcpy (*esp, &argv[i], sizeof (uintptr_t));
           }
 
-          /* Push pointer to argv[0]. */
-          void **argv_base = esp;
+          /* Push pointer to argv. */
           *esp = *(uintptr_t **) esp - 1;
-          memcpy (*esp, argv_base, sizeof (uintptr_t));
+          *(uintptr_t **) *esp = *(uintptr_t **) esp + 1;
           
           /* Push argc. */
           *esp = *(uintptr_t **) esp - 1;
