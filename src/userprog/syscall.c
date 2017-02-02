@@ -1,8 +1,11 @@
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -12,9 +15,9 @@ static bool validate_address (void * address);
 static void sys_halt (void);
 static void sys_exit (void);
 static void sys_exec (void /* const char *cmd_line */);
-static void sys_create (void /* const *file, uint32_t initial_size */);
+static bool sys_create (const char *file, uint32_t initial_size);
 static void sys_remove (void /* const char *file */);
-static void sys_open (void /* const char *file */);
+static int sys_open (const char *file);
 static void sys_filesize (void /* int fd */);
 static void sys_read (void /* int fd, void *buffer */);
 static size_t sys_write (void *esp /* int fd, const void *buffer, uint32_t size */);
@@ -22,6 +25,15 @@ static void sys_seek (void /* int fd, uint32_t position */);
 static void sys_tell (void /* int fd */);
 static void sys_close (void /* int fd */);
 static void sys_wait (void);
+
+static int next_fd = 2;
+
+struct fd_to_file 
+  {
+    int fd;
+    struct file *f;
+    struct list_elem elem;
+  };
 
 void syscall_init (void) 
 {
@@ -67,10 +79,14 @@ sys_wait ()
 }
 
 // TODO what type should this be
-static void
-sys_create (/* const *file, uint32_t initial_size */)
+static bool
+sys_create (const char *file, uint32_t initial_size)
 {
 	printf ("CREATE\n");
+  if (!validate_address ((void *)file))
+    thread_exit (); // change to free resources and exit (decomposed)
+  // add filesys lock
+  return filesys_create (file, initial_size);
 }
 
 static void
@@ -79,10 +95,27 @@ sys_remove (/* const char *file */)
 	printf ("REMOVE\n");
 }
 
-static void
-sys_open (/* const char *file */)
+static int
+sys_open (const char *file)
 {
-	printf ("OPEN\n");;
+  printf ("OPEN\n");;
+  if (!validate_address ((void *)file))
+    thread_exit (); // change to free resources and exit (decomposed)
+  printf("Opening file %s\n", file);
+  // add lock for file ops
+  struct file *f = filesys_open (file);
+  if (f == NULL)
+    return -1; 
+
+  struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
+  user_file->f = f;
+  user_file->fd = next_fd++;
+
+  // TODO Potentially, adjust inode open_cnt
+
+  list_push_back (&thread_current ()->files, &user_file->elem);
+  printf("Setting to fd %d\n", user_file->fd);
+  return user_file->fd;
 }
 
 static void
@@ -155,13 +188,13 @@ syscall_handler (struct intr_frame *f UNUSED)
   		sys_wait ();
   		break;
   	case SYS_CREATE:
-  		sys_create ();
+  		sys_create (((char **)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_REMOVE:
   		sys_remove ();
   		break;
   	case SYS_OPEN:
-  		sys_open ();
+  		sys_open (((char **)esp)[1]);
   		break;
   	case SYS_FILESIZE:
   		sys_filesize ();
