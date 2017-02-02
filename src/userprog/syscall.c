@@ -17,7 +17,7 @@ static void sys_remove (void /* const char *file */);
 static void sys_open (void /* const char *file */);
 static void sys_filesize (void /* int fd */);
 static void sys_read (void /* int fd, void *buffer */);
-static void sys_write (void *esp /* int fd, const void *buffer, uint32_t size */);
+static size_t sys_write (void *esp /* int fd, const void *buffer, uint32_t size */);
 static void sys_seek (void /* int fd, uint32_t position */);
 static void sys_tell (void /* int fd */);
 static void sys_close (void /* int fd */);
@@ -97,7 +97,7 @@ sys_read (/* int fd, void *buffer */)
 	printf ("READ\n");
 }
 
-static void
+static size_t
 sys_write (void *esp/* int fd, const void *buffer, uint32_t size */)
 {
 	printf ("WRITE\n");
@@ -108,9 +108,9 @@ sys_write (void *esp/* int fd, const void *buffer, uint32_t size */)
 		thread_exit (); // change to free resources and exit (decomposed)
 	if (fd == STDOUT_FILENO) 
 		{
-			printf("about to pit buf of size %d\n", (int)size);
-			printf("%s\n", (char *)buffer);
-			putbuf (buffer, size);
+			printf("about to print buf of size %d\n", (int)size);
+		  putbuf (buffer, size);
+      return size;
 		}
 	else
 		thread_exit ();	
@@ -133,10 +133,6 @@ sys_close (/* int fd */)
 {
 	printf ("CLOSE\n");
 }
-
-
-
-
 
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
@@ -174,7 +170,8 @@ syscall_handler (struct intr_frame *f UNUSED)
   		sys_read ();
   		break;
   	case SYS_WRITE:
-  		sys_write (esp);
+  		f->eax = sys_write (esp);
+      printf("eax: %d\n", (int) f->eax);
   		break;
   	case SYS_SEEK:
   		sys_seek ();
@@ -186,5 +183,6 @@ syscall_handler (struct intr_frame *f UNUSED)
   		sys_close ();
   		break;
   	}
-  thread_exit ();
+  printf("Exiting thread\n");
+  // thread_exit ();
 }

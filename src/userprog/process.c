@@ -493,6 +493,7 @@ setup_stack (void **esp, char *cmdline)
               return false;
             }
 
+          // TODO decompose esp functions (arithmetic is gnar)
           *esp = (void *) ((uintptr_t) *esp & -4);
           
           /* Push null terminator for argv. */
