@@ -17,7 +17,7 @@ static void sys_remove (void /* const char *file */);
 static void sys_open (void /* const char *file */);
 static void sys_filesize (void /* int fd */);
 static void sys_read (void /* int fd, void *buffer */);
-static void sys_write (void /* int fd, const void *buffer, uint32_t size */);
+static void sys_write (void *esp /* int fd, const void *buffer, uint32_t size */);
 static void sys_seek (void /* int fd, uint32_t position */);
 static void sys_tell (void /* int fd */);
 static void sys_close (void /* int fd */);
@@ -98,9 +98,22 @@ sys_read (/* int fd, void *buffer */)
 }
 
 static void
-sys_write (/* int fd, const void *buffer, uint32_t size */)
+sys_write (void *esp/* int fd, const void *buffer, uint32_t size */)
 {
 	printf ("WRITE\n");
+	int fd = ((int *)esp)[1];
+	char *buffer = ((char **)esp)[2]; //((void **)esp)[2];
+	size_t size = ((size_t *)esp)[3];
+	if (!validate_address ((void *)buffer))
+		thread_exit (); // change to free resources and exit (decomposed)
+	if (fd == STDOUT_FILENO) 
+		{
+			printf("about to pit buf of size %d\n", (int)size);
+			printf("%s\n", (char *)buffer);
+			putbuf (*(char **)buffer, size);
+		}
+	else
+		thread_exit ();	
 }
 
 static void
@@ -161,7 +174,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   		sys_read ();
   		break;
   	case SYS_WRITE:
-  		sys_write ();
+  		sys_write (esp);
   		break;
   	case SYS_SEEK:
   		sys_seek ();
