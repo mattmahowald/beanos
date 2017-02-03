@@ -84,7 +84,7 @@ kill (struct intr_frame *f)
   /* Indicate to the parent that the thread is killed by the kernel. */ 
   struct thread *t = thread_current ();
   t->ret_status = -1;
-  sema_up (t->done);
+  sema_up (&t->done);
 
   /* The interrupt frame's code segment value tells us where the
      exception originated. */

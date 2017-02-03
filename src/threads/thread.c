@@ -483,10 +483,12 @@ init_thread (struct thread *t, const char *name, int priority)
 
   // TODO do we need to block
   list_init (&t->children);
-  t->parent = thread_current ();
+  if (t != initial_thread)
+    t->parent = thread_current ();
+  
   t->reaped = false;
-  sema_init(t->done, 0);
-  sema_init(t->loaded, 0);
+  sema_init(&t->done, 0);
+  sema_init(&t->loaded, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

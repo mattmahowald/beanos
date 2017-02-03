@@ -52,7 +52,7 @@ process_execute (const char *cmdline)
       struct thread *child = thread_get_from_tid (tid); 
       child->parent = thread_current ();
       list_push_back (&thread_current ()->children, &child->child_elem);
-      sema_down (child->loaded);
+      sema_down (&child->loaded);
     }
   return tid;
 }
@@ -117,7 +117,7 @@ process_wait (tid_t child_tid)
     }
   if (child == NULL || /* TODO check not valid TID */ false || child->reaped)
     return -1;
-  sema_down (child->done);
+  sema_down (&child->done);
   // TODO somehow deal with kernel-killed threads ... think we're fine because kill returns -1
   child->reaped = true;
   return child->ret_status;
@@ -355,7 +355,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
-  sema_up (thread_current ()->loaded);
+  sema_up (&(thread_current ()->loaded));
   return success;
 }
 

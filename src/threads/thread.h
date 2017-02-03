@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -104,8 +105,8 @@ struct thread
     struct thread *parent;              /* TODO may not be needed. */
     
     // TODO change to dead
-    struct semaphore *done;             /* Semaphore to signal parent when DYING. */
-    struct semaphore *loaded;           /* Semaphore to signal parent when loaded. */
+    struct semaphore done;             /* Semaphore to signal parent when DYING. */
+    struct semaphore loaded;           /* Semaphore to signal parent when loaded. */
     bool reaped;                        /* Set to true on wait(). */
     int ret_status;                     /* Return status set upon exit or kill. */
 
