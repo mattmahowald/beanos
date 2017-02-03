@@ -284,7 +284,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   		f->eax = sys_filesize (((int *)esp)[1]);
   		break;
   	case SYS_READ:
-  		sys_read (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
+  		f->eax = sys_read (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
   		break;
   	case SYS_WRITE:
   		f->eax = sys_write (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
