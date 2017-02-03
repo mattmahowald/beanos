@@ -200,7 +200,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  
   return tid;
 }
 
@@ -279,6 +279,7 @@ thread_tid (void)
 struct thread *
 thread_get_from_tid (tid_t tid)
 {
+  // TODO disable intr
   struct list_elem *thread_e;
   for (thread_e = list_begin (&all_list); thread_e != list_end (&all_list);
        thread_e = list_next (thread_e))

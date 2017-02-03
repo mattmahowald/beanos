@@ -70,6 +70,7 @@ sys_exit (int status)
 	printf ("EXIT\n");
   thread_current ()->ret_status = status;
   sema_up (thread_current ()->done);
+  thread_exit ();
   NOT_REACHED ();
 }
 

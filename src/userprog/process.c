@@ -32,6 +32,7 @@ static bool load (char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *cmdline) 
 {
+  printf("process.c:process_execute %s\n", cmdline);
   char *cmd_copy;
   tid_t tid;
 
@@ -354,6 +355,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  sema_up (thread_current ()->loaded);
   return success;
 }
 
