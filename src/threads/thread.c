@@ -485,10 +485,13 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->children);
   if (t != initial_thread)
     t->parent = thread_current ();
-  
+  if (t == initial_thread)
+    sema_init (&t->safe_to_die, 1);
+  else 
+    sema_init (&t->safe_to_die, 0);
   t->reaped = false;
-  sema_init(&t->done, 0);
-  sema_init(&t->loaded, 0);
+  sema_init (&t->done, 0);
+  sema_init (&t->loaded, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -564,7 +567,7 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
-      palloc_free_page (prev);
+      //palloc_free_page (prev);
     }
 }
 

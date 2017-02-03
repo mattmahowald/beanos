@@ -51,6 +51,7 @@ process_execute (const char *cmdline)
     {
       struct thread *child = thread_get_from_tid (tid); 
       child->parent = thread_current ();
+      printf("pushing thread %s to children list\n", child->name);
       list_push_back (&thread_current ()->children, &child->child_elem);
       sema_down (&child->loaded);
     }
@@ -102,25 +103,36 @@ start_process (void *cmdline_)
 int
 process_wait (tid_t child_tid) 
 {
+  // printf("%s\n", "entered wait call");
   struct list_elem *child_e;
   struct list children = thread_current ()->children;
+  enum intr_level old_level = intr_disable ();
+  // printf("%s\n", "got child list");
   struct thread *child = NULL;
   for (child_e = list_begin (&children); child_e != list_end (&children);
        child_e = list_next (child_e))
     {
       struct thread *t = list_entry (child_e, struct thread, child_elem);
+      // printf("%s\n", t->name);
       if (t->tid == child_tid)
         {
+          // printf("%s\n", "found child");
           child = t;
           break;
         }
     }
+  // printf("%s\n", "didnt find child");
+  intr_set_level (old_level);  
+
   if (child == NULL || /* TODO check not valid TID */ false || child->reaped)
     return -1;
+  // printf("Main thread is about to sema down for children\n");  
   sema_down (&child->done);
+  // printf("Main thread just woke up ie children finished\n");
   // TODO somehow deal with kernel-killed threads ... think we're fine because kill returns -1
   child->reaped = true;
-  return child->ret_status;
+  int status = child->ret_status;
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -130,6 +142,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  // TODO maybe free thread resources?
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

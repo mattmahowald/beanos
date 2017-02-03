@@ -17,7 +17,6 @@
 static void syscall_handler (struct intr_frame *);
 static bool validate_address (void * address);
 static void sys_halt (void);
-static void sys_exit (int status);
 static tid_t sys_exec (const char *cmd_line);
 static bool sys_create (const char *file, uint32_t initial_size);
 static bool sys_remove (const char *file);
@@ -68,13 +67,22 @@ sys_halt (void)
   shutdown_power_off ();
 }
 
-static void
+void
 sys_exit (int status)
 {
   // TODO 
-  //    close all files
+  //    close all files, release all locks
   //    is kernel doing this?
 	// printf ("EXIT\n");
+  struct list_elem *child_e;
+  struct list children = thread_current ()->children;
+
+  for (child_e = list_begin (&children); child_e != list_end (&children);
+       child_e = list_next (child_e))
+    {
+      struct thread *t = list_entry (child_e, struct thread, child_elem);
+      sema_up (&t->safe_to_die);
+    }
   thread_current ()->ret_status = status;
   sema_up (&thread_current ()->done);
   char *name = thread_current ()->name;
