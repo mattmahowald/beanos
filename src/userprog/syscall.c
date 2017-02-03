@@ -1,3 +1,5 @@
+#include "devices/input.h"
+#include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/pagedir.h"
@@ -18,16 +20,19 @@ static void sys_halt (void);
 static void sys_exit (int status);
 static tid_t sys_exec (const char *cmd_line);
 static bool sys_create (const char *file, uint32_t initial_size);
-static void sys_remove (void /* const char *file */);
+static bool sys_remove (const char *file);
 static int sys_open (const char *file);
-static void sys_filesize (void /* int fd */);
-static void sys_read (void /* int fd, void *buffer */);
-static size_t sys_write (void *esp /* int fd, const void *buffer, uint32_t size */);
-static void sys_seek (void /* int fd, uint32_t position */);
-static void sys_tell (void /* int fd */);
-static void sys_close (void /* int fd */);
+static int sys_filesize (int fd);
+static int sys_read (int fd, void *buffer, uint32_t size);
+static int sys_write (int fd, void *buffer, uint32_t size);
+static void sys_seek (int fd, uint32_t position);
+static uint32_t sys_tell (int fd);
+static void sys_close (int fd);
 static tid_t sys_wait (tid_t tid);
+static struct fd_to_file *get_file_struct_from_fd (int fd);
 
+
+static struct lock filesys_lock;
 static int next_fd = 2;
 
 struct fd_to_file 
@@ -40,6 +45,7 @@ struct fd_to_file
 void syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init (&filesys_lock);
 }
 
 // TODO double check this function at OH
@@ -59,6 +65,7 @@ static void
 sys_halt (void)
 {
 	printf ("HALT\n");
+  shutdown_power_off ();
 }
 
 static void
@@ -105,14 +112,22 @@ sys_create (const char *file, uint32_t initial_size)
 	printf ("CREATE\n");
   if (!validate_address ((void *)file))
     thread_exit (); // change to free resources and exit (decomposed)
-  // add filesys lock
-  return filesys_create (file, initial_size);
+  lock_acquire (&filesys_lock);
+  bool success =  filesys_create (file, initial_size);
+  lock_release (&filesys_lock);
+  return success;
 }
 
-static void
-sys_remove (/* const char *file */)
+static bool
+sys_remove (const char *file)
 {
 	printf ("REMOVE\n");
+  if (!validate_address ((void *)file))
+    thread_exit (); // change to free resources and exit (decomposed)
+  lock_acquire (&filesys_lock);
+  bool success = filesys_remove (file);
+  lock_release (&filesys_lock);
+  return success;
 }
 
 static int
@@ -127,6 +142,7 @@ sys_open (const char *file)
   if (f == NULL)
     return -1; 
 
+  // TODO check malloc return val
   struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
   user_file->f = f;
   user_file->fd = next_fd++;
@@ -138,53 +154,101 @@ sys_open (const char *file)
   return user_file->fd;
 }
 
-static void
-sys_filesize (/* int fd */)
+static int
+sys_filesize (int fd)
 {
 	printf ("FILESIZE\n");
+  struct file *f = get_file_struct_from_fd (fd)->f;
+  if (f == NULL)
+    return -1;
+  return file_length (f);
 }
 
-static void
-sys_read (/* int fd, void *buffer */)
-{
+static int
+sys_read (int fd, void *buffer, uint32_t size)
+{ 
 	printf ("READ\n");
+  int read = -1;
+  if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
+    thread_exit (); // change to free resources and exit (decomposed)
+  if (fd == STDIN_FILENO)
+    {
+      size_t i;
+      for (i = 0; i < size; i++)  
+        *((char *)buffer + i) = input_getc ();
+      read = size;
+    }
+  else 
+    {
+      // TODO maybe check that not trying to read from stdOUT?
+      // TODO again seperate into two steps to check for null return value
+      struct file *f = get_file_struct_from_fd (fd)->f;
+      lock_acquire (&filesys_lock);
+      read = file_read (f, buffer, size);
+      lock_release (&filesys_lock); 
+    }
+  return read;
 }
 
-static size_t
-sys_write (void *esp/* int fd, const void *buffer, uint32_t size */)
+static int
+sys_write (int fd, void *buffer, uint32_t size)
 {
 	printf ("WRITE\n");
-	int fd = ((int *)esp)[1];
-	char *buffer = ((char **)esp)[2]; //((void **)esp)[2];
-	size_t size = ((size_t *)esp)[3];
-	if (!validate_address ((void *)buffer))
+	int written = -1;
+  if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
 		thread_exit (); // change to free resources and exit (decomposed)
 	if (fd == STDOUT_FILENO) 
 		{
-			printf("about to print buf of size %d\n", (int)size);
+      // TODO maybe segment this into sizes of sev hundred
 		  putbuf (buffer, size);
-      return size;
+      written = size;
 		}
 	else
-		thread_exit ();	
+    {
+      // TODO potenitally make sure not writing ot STDIN
+      // ALSO TODO, maybe seperate this line into multiple to check for void return val
+      // (cant do at present as potentially dereferencing null pointer)
+      struct file *f = get_file_struct_from_fd (fd)->f;
+      lock_acquire (&filesys_lock);
+      written = file_write (f, buffer, size);
+      lock_release (&filesys_lock);
+    }
+    return written;
 }
 
 static void
-sys_seek (/* int fd, uint32_t position */)
+sys_seek (int fd, uint32_t position)
 {
 	printf ("SEEK\n");
+  struct file *f = get_file_struct_from_fd (fd)->f;
+  if (f == NULL)
+    return;
+  lock_acquire (&filesys_lock);
+  file_seek (f, position);
+  lock_release (&filesys_lock);
 }
 
-static void
-sys_tell (/* int fd */)
+static uint32_t
+sys_tell (int fd)
 {
 	printf ("TELL\n");
-}
+  struct file *f = get_file_struct_from_fd (fd)->f;
+  if (f == NULL)
+    return 0;
+  return file_tell (f);
+}  
 
 static void
-sys_close (/* int fd */)
+sys_close (int fd)
 {
 	printf ("CLOSE\n");
+  struct fd_to_file *f = get_file_struct_from_fd (fd);
+  if (f == NULL)
+    return;
+  lock_acquire (&filesys_lock);
+  file_close (f->f);
+  lock_release (&filesys_lock);
+  list_remove (&f->elem);
 }
 
 static void
@@ -211,31 +275,43 @@ syscall_handler (struct intr_frame *f UNUSED)
   		f->eax = sys_create (((char **)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_REMOVE:
-  		sys_remove ();
+  		f->eax = sys_remove (((char **)esp)[1]);
   		break;
   	case SYS_OPEN:
   		f->eax = sys_open (((char **)esp)[1]);
   		break;
   	case SYS_FILESIZE:
-  		sys_filesize ();
+  		f->eax = sys_filesize (((int *)esp)[1]);
   		break;
   	case SYS_READ:
-  		sys_read ();
+  		sys_read (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
   		break;
   	case SYS_WRITE:
-  		f->eax = sys_write (esp);
-      printf("eax: %d\n", (int) f->eax);
+  		f->eax = sys_write (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
   		break;
   	case SYS_SEEK:
-  		sys_seek ();
+  		sys_seek (((int *)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_TELL:
-  		sys_tell ();
+  		f->eax = sys_tell (((int *)esp)[1]);
   		break;
   	case SYS_CLOSE:
-  		sys_close ();
+  		sys_close (((int *)esp)[1]);
   		break;
   	}
-  printf("Exiting thread\n");
-  // thread_exit ();
+}
+
+static struct fd_to_file *
+get_file_struct_from_fd (int fd)
+{
+  struct list_elem *file_e;
+  struct list files = thread_current ()->files;
+  for (file_e = list_begin (&files); file_e != list_end (&files); 
+       file_e = list_next (file_e))
+    {
+      struct fd_to_file *file = list_entry (file_e, struct fd_to_file, elem);
+      if (file->fd == fd)
+        return file;
+    }
+  return NULL; 
 }
