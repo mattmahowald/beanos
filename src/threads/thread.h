@@ -95,8 +95,20 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    struct list files;
     uint32_t *pagedir;                  /* Page directory. */
+
+    struct list files;                  /* List of open files using fd_to_files. */
+
+    struct list children;               /* List of child threads. */
+    struct list_elem child_elem;        /* List element for parent's children. */
+    struct thread *parent;              /* TODO may not be needed. */
+    
+    // TODO change to dead
+    struct semaphore *done;             /* Semaphore to signal parent when DYING. */
+    struct semaphore *loaded;           /* Semaphore to signal parent when loaded. */
+    bool reaped;                        /* Set to true on wait(). */
+    int ret_status;                     /* Return status set upon exit or kill. */
+
 #endif
 
     /* Owned by thread.c. */
@@ -123,6 +135,7 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
+struct thread *thread_get_from_tid (tid_t tid);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);

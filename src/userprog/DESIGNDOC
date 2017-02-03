@@ -100,14 +100,28 @@ Could this be the fork exexcve combo?
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+Thread.h
+
+    struct list files;
+
+    struct list children;
+    struct list_elem child_elem;
+    struct thread *parent;
+    struct semaphore *done;
+    bool reaped;
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+File descriptors are unique within a process.
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least

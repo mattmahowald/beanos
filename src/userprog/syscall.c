@@ -1,11 +1,13 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/pagedir.h"
+#include "userprog/process.h"
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -13,8 +15,8 @@
 static void syscall_handler (struct intr_frame *);
 static bool validate_address (void * address);
 static void sys_halt (void);
-static void sys_exit (void);
-static void sys_exec (void /* const char *cmd_line */);
+static void sys_exit (int status);
+static tid_t sys_exec (const char *cmd_line);
 static bool sys_create (const char *file, uint32_t initial_size);
 static void sys_remove (void /* const char *file */);
 static int sys_open (const char *file);
@@ -24,7 +26,7 @@ static size_t sys_write (void *esp /* int fd, const void *buffer, uint32_t size 
 static void sys_seek (void /* int fd, uint32_t position */);
 static void sys_tell (void /* int fd */);
 static void sys_close (void /* int fd */);
-static void sys_wait (void);
+static tid_t sys_wait (tid_t tid);
 
 static int next_fd = 2;
 
@@ -60,21 +62,38 @@ sys_halt (void)
 }
 
 static void
-sys_exit (/* int status */)
+sys_exit (int status)
 {
+  // TODO 
+  //    close all files
+  //    is kernel doing this?
 	printf ("EXIT\n");
-	thread_exit ();
+  thread_current ()->ret_status = status;
+  sema_up (thread_current ()->done);
+  NOT_REACHED ();
 }
 
-static void
-sys_exec (/* const char *cmd_line */)
+static int
+sys_exec (const char *cmd_line)
 {
-	printf ("EXEC\n");
+  printf ("EXEC\n");
+  // load cmdline executable
+  // return the new process's pid
+  // must return -1 if cannot load
+  // aka process_execute (cmd_line);
+  // establish parent-child relationship in process.c
+  if (!validate_address ((void *) cmd_line))
+    return -1;
+  tid_t tid = process_execute (cmd_line);
+  if (tid == TID_ERROR) 
+    return -1;
+	return tid;
 }
 
-static void
-sys_wait ()
+static tid_t
+sys_wait (tid_t tid)
 {
+  return process_wait(tid);
 	printf("WAIT\n");
 }
 
@@ -179,22 +198,22 @@ syscall_handler (struct intr_frame *f UNUSED)
   		sys_halt ();
   		break;
   	case SYS_EXIT:
-  		sys_exit ();
+  		sys_exit (((int *)esp)[1]);
   		break;
   	case SYS_EXEC:
-  		sys_exec ();
+  		f->eax = sys_exec (((char **)esp)[1]);
   		break;
   	case SYS_WAIT:
-  		sys_wait ();
+  		f->eax = sys_wait (((tid_t *)esp)[1]);
   		break;
   	case SYS_CREATE:
-  		sys_create (((char **)esp)[1], ((int *)esp)[2]);
+  		f->eax = sys_create (((char **)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_REMOVE:
   		sys_remove ();
   		break;
   	case SYS_OPEN:
-  		sys_open (((char **)esp)[1]);
+  		f->eax = sys_open (((char **)esp)[1]);
   		break;
   	case SYS_FILESIZE:
   		sys_filesize ();

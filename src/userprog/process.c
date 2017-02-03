@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -45,6 +46,13 @@ process_execute (const char *cmdline)
   tid = thread_create (cmdline, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
     palloc_free_page (cmd_copy); 
+  else
+    {
+      struct thread *child = thread_get_from_tid (tid); 
+      child->parent = thread_current ();
+      list_push_back (&thread_current ()->children, &child->child_elem);
+      sema_down (child->loaded);
+    }
   return tid;
 }
 
@@ -55,7 +63,7 @@ start_process (void *cmdline_)
 {
   char *cmdline = cmdline_;
   // TODO Remove
-  printf("%s\n", cmdline);
+  printf("process.c:start_process %s\n", cmdline);
   struct intr_frame if_;
   bool success;
 
@@ -91,10 +99,27 @@ start_process (void *cmdline_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  for(;;);
-  return -1;
+  struct list_elem *child_e;
+  struct list children = thread_current ()->children;
+  struct thread *child = NULL;
+  for (child_e = list_begin (&children); child_e != list_end (&children);
+       child_e = list_next (child_e))
+    {
+      struct thread *t = list_entry (child_e, struct thread, child_elem);
+      if (t->tid == child_tid)
+        {
+          child = t;
+          break;
+        }
+    }
+  if (child == NULL || /* TODO check not valid TID */ false || child->reaped)
+    return -1;
+  sema_down (child->done);
+  // TODO somehow deal with kernel-killed threads ... think we're fine because kill returns -1
+  child->reaped = true;
+  return child->ret_status;
 }
 
 /* Free the current process's resources. */
@@ -221,7 +246,6 @@ load (char *cmdline, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
-  // TODO this is janky, talk to TA
   char cmd_copy[strlen(cmdline) + 1];
   char *filename, *save_ptr;
   strlcpy (cmd_copy, cmdline, strlen(cmdline) + 1);
@@ -482,7 +506,6 @@ setup_stack (void **esp, char *cmdline)
           uintptr_t argv[MAX_ARGS];
           size_t bytes_used = 0;
           
-          // TODO handle overflowing the stack
           size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
 
           /* Decrement esp to nearest multiple of four bytes. */

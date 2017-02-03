@@ -275,6 +275,21 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
+/* Returns the thread with tid TID or NULL if not found. */
+struct thread *
+thread_get_from_tid (tid_t tid)
+{
+  struct list_elem *thread_e;
+  for (thread_e = list_begin (&all_list); thread_e != list_end (&all_list);
+       thread_e = list_next (thread_e))
+    {
+      struct thread *t = list_entry (thread_e, struct thread, allelem);
+      if (t->tid == tid)
+        return t;
+    }
+  return NULL;
+}
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
@@ -464,6 +479,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_init (&t->files); 
+
+  // TODO do we need to block
+  list_init (&t->children);
+  t->parent = thread_current ();
+  t->reaped = false;
+  sema_init(t->done, 0);
+  sema_init(t->loaded, 0);
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

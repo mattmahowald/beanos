@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
+
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -79,6 +81,11 @@ kill (struct intr_frame *f)
      exceptions back to the process via signals, but we don't
      implement them. */
      
+  /* Indicate to the parent that the thread is killed by the kernel. */ 
+  struct thread *t = thread_current ();
+  t->ret_status = -1;
+  sema_up (t->done);
+
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
   switch (f->cs)
