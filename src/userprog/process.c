@@ -32,7 +32,7 @@ static bool load (char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *cmdline) 
 {
-  printf("process.c:process_execute %s\n", cmdline);
+  // printf("process.c:process_execute %s\n", cmdline);
   char *cmd_copy;
   tid_t tid;
 
@@ -64,7 +64,7 @@ start_process (void *cmdline_)
 {
   char *cmdline = cmdline_;
   // TODO Remove
-  printf("process.c:start_process %s\n", cmdline);
+  // printf("process.c:start_process %s\n", cmdline);
   struct intr_frame if_;
   bool success;
 
@@ -171,7 +171,7 @@ process_activate (void)
 typedef uint32_t Elf32_Word, Elf32_Addr, Elf32_Off;
 typedef uint16_t Elf32_Half;
 
-/* For use with ELF types in printf(). */
+ // For use with ELF types in printf(). 
 #define PE32Wx PRIx32   /* Print Elf32_Word in hexadecimal. */
 #define PE32Ax PRIx32   /* Print Elf32_Addr in hexadecimal. */
 #define PE32Ox PRIx32   /* Print Elf32_Off in hexadecimal. */
@@ -337,7 +337,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
           break;
         }
     }
-  printf ("checkpoint\n");
+  // printf ("checkpoint\n");
 
   /* Set up stack. */
   // TODO remove shit
@@ -345,7 +345,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
     printf("Stack not setup\n");
     goto done;
   }
-  printf("Stack setup\n");
+  // printf("Stack setup\n");
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;

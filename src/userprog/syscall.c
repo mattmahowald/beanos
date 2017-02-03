@@ -64,7 +64,7 @@ validate_address (void * address)
 static void
 sys_halt (void)
 {
-	printf ("HALT\n");
+	// printf ("HALT\n");
   shutdown_power_off ();
 }
 
@@ -74,9 +74,11 @@ sys_exit (int status)
   // TODO 
   //    close all files
   //    is kernel doing this?
-	printf ("EXIT\n");
+	// printf ("EXIT\n");
   thread_current ()->ret_status = status;
   sema_up (&thread_current ()->done);
+  char *name = thread_current ()->name;
+  printf("%s: exit(%d)\n", name, status);
   thread_exit ();
   NOT_REACHED ();
 }
@@ -84,7 +86,7 @@ sys_exit (int status)
 static int
 sys_exec (const char *cmd_line)
 {
-  printf ("EXEC\n");
+  // printf ("EXEC\n");
   // load cmdline executable
   // return the new process's pid
   // must return -1 if cannot load
@@ -102,16 +104,16 @@ static tid_t
 sys_wait (tid_t tid)
 {
   return process_wait(tid);
-	printf("WAIT\n");
+	// printf("WAIT\n");
 }
 
 // TODO what type should this be
 static bool
 sys_create (const char *file, uint32_t initial_size)
 {
-	printf ("CREATE\n");
+	// printf ("CREATE\n");
   if (!validate_address ((void *)file))
-    thread_exit (); // change to free resources and exit (decomposed)
+    sys_exit (-1); // change to free resources and exit (decomposed)
   lock_acquire (&filesys_lock);
   bool success =  filesys_create (file, initial_size);
   lock_release (&filesys_lock);
@@ -121,9 +123,9 @@ sys_create (const char *file, uint32_t initial_size)
 static bool
 sys_remove (const char *file)
 {
-	printf ("REMOVE\n");
+	// printf ("REMOVE\n");
   if (!validate_address ((void *)file))
-    thread_exit (); // change to free resources and exit (decomposed)
+    sys_exit (-1); // change to free resources and exit (decomposed)
   lock_acquire (&filesys_lock);
   bool success = filesys_remove (file);
   lock_release (&filesys_lock);
@@ -133,10 +135,10 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  printf ("OPEN\n");;
+  // printf ("OPEN\n");;
   if (!validate_address ((void *)file))
-    thread_exit (); // change to free resources and exit (decomposed)
-  printf("Opening file %s\n", file);
+    sys_exit (-1); // change to free resources and exit (decomposed)
+  // printf("Opening file %s\n", file);
   // add lock for file ops
   struct file *f = filesys_open (file);
   if (f == NULL)
@@ -150,14 +152,14 @@ sys_open (const char *file)
   // TODO Potentially, adjust inode open_cnt
 
   list_push_back (&thread_current ()->files, &user_file->elem);
-  printf("Setting to fd %d\n", user_file->fd);
+  // printf("Setting to fd %d\n", user_file->fd);
   return user_file->fd;
 }
 
 static int
 sys_filesize (int fd)
 {
-	printf ("FILESIZE\n");
+	// printf ("FILESIZE\n");
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return -1;
@@ -167,10 +169,10 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, uint32_t size)
 { 
-	printf ("READ\n");
+	// printf ("READ\n");
   int read = -1;
   if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
-    thread_exit (); // change to free resources and exit (decomposed)
+    sys_exit (-1); // change to free resources and exit (decomposed)
   if (fd == STDIN_FILENO)
     {
       size_t i;
@@ -193,10 +195,10 @@ sys_read (int fd, void *buffer, uint32_t size)
 static int
 sys_write (int fd, void *buffer, uint32_t size)
 {
-	printf ("WRITE\n");
+	// printf ("WRITE\n");
 	int written = -1;
   if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
-		thread_exit (); // change to free resources and exit (decomposed)
+		sys_exit (-1); // change to free resources and exit (decomposed)
 	if (fd == STDOUT_FILENO) 
 		{
       // TODO maybe segment this into sizes of sev hundred
@@ -219,7 +221,7 @@ sys_write (int fd, void *buffer, uint32_t size)
 static void
 sys_seek (int fd, uint32_t position)
 {
-	printf ("SEEK\n");
+	// printf ("SEEK\n");
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return;
@@ -231,7 +233,7 @@ sys_seek (int fd, uint32_t position)
 static uint32_t
 sys_tell (int fd)
 {
-	printf ("TELL\n");
+	// printf ("TELL\n");
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return 0;
@@ -241,7 +243,7 @@ sys_tell (int fd)
 static void
 sys_close (int fd)
 {
-	printf ("CLOSE\n");
+	// printf ("CLOSE\n");
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
     return;
