@@ -15,7 +15,7 @@
 
 
 static void syscall_handler (struct intr_frame *);
-static bool validate_address (void * address);
+static void validate_address (void * address);
 static void sys_halt (void);
 static tid_t sys_exec (const char *cmd_line);
 static bool sys_create (const char *file, uint32_t initial_size);
@@ -49,15 +49,14 @@ void syscall_init (void)
 
 // TODO double check this function at OH
 
-static bool
+static void
 validate_address (void * address)
 {
 	if (!is_user_vaddr(address))
-		return false;
+		sys_exit (-1);
 	uint32_t *page_dir = thread_current ()-> pagedir;
 	if (pagedir_get_page(page_dir, address) == NULL)
-		return false;
-	return true;
+		sys_exit (-1);
 }
 
 static void
@@ -102,8 +101,7 @@ sys_exec (const char *cmd_line)
   // must return -1 if cannot load
   // aka process_execute (cmd_line);
   // establish parent-child relationship in process.c
-  if (!validate_address ((void *) cmd_line))
-    return -1;
+  validate_address((void *)cmd_line);
   tid_t tid = process_execute (cmd_line);
   if (tid == TID_ERROR) 
     return -1;
@@ -122,8 +120,7 @@ static bool
 sys_create (const char *file, uint32_t initial_size)
 {
 	// printf ("CREATE\n");
-  if (!validate_address ((void *)file))
-    sys_exit (-1); // change to free resources and exit (decomposed)
+  validate_address((void *)file);
   lock_acquire (&filesys_lock);
   bool success =  filesys_create (file, initial_size);
   lock_release (&filesys_lock);
@@ -134,8 +131,7 @@ static bool
 sys_remove (const char *file)
 {
 	// printf ("REMOVE\n");
-  if (!validate_address ((void *)file))
-    sys_exit (-1); // change to free resources and exit (decomposed)
+  validate_address((void *)file);
   lock_acquire (&filesys_lock);
   bool success = filesys_remove (file);
   lock_release (&filesys_lock);
@@ -145,10 +141,7 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  // printf ("OPEN\n");;
-  if (!validate_address ((void *)file))
-    sys_exit (-1); // change to free resources and exit (decomposed)
-  // printf("Opening file %s\n", file);
+  validate_address((void *)file);
   // add lock for file ops
   struct file *f = filesys_open (file);
   if (f == NULL)
@@ -181,8 +174,8 @@ sys_read (int fd, void *buffer, uint32_t size)
 { 
 	// printf ("READ\n");
   int read = -1;
-  if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
-    sys_exit (-1); // change to free resources and exit (decomposed)
+  validate_address (buffer);
+  validate_address ((char *)buffer + size);
   if (fd == STDIN_FILENO)
     {
       size_t i;
@@ -192,9 +185,13 @@ sys_read (int fd, void *buffer, uint32_t size)
     }
   else 
     {
-      // TODO maybe check that not trying to read from stdOUT?
+      if (fd == STDOUT_FILENO)
+        sys_exit (-1);
       // TODO again seperate into two steps to check for null return value
-      struct file *f = get_file_struct_from_fd (fd)->f;
+      struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+      if (!fd_)
+        sys_exit (-1);
+      struct file *f = fd_->f;
       lock_acquire (&filesys_lock);
       read = file_read (f, buffer, size);
       lock_release (&filesys_lock); 
@@ -207,8 +204,8 @@ sys_write (int fd, void *buffer, uint32_t size)
 {
 	// printf ("WRITE\n");
 	int written = -1;
-  if (!validate_address (buffer) || !validate_address ((char *)buffer + size))
-		sys_exit (-1); // change to free resources and exit (decomposed)
+  validate_address (buffer);
+  validate_address ((char *)buffer + size);
 	if (fd == STDOUT_FILENO) 
 		{
       // TODO maybe segment this into sizes of sev hundred
@@ -218,9 +215,14 @@ sys_write (int fd, void *buffer, uint32_t size)
 	else
     {
       // TODO potenitally make sure not writing ot STDIN
+      if (fd == STDIN_FILENO)
+        sys_exit (-1);
       // ALSO TODO, maybe seperate this line into multiple to check for void return val
       // (cant do at present as potentially dereferencing null pointer)
-      struct file *f = get_file_struct_from_fd (fd)->f;
+      struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+      if (!fd_)
+        sys_exit (-1);
+      struct file *f = fd_->f;
       lock_acquire (&filesys_lock);
       written = file_write (f, buffer, size);
       lock_release (&filesys_lock);
@@ -266,50 +268,66 @@ sys_close (int fd)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  void *esp = f->esp;
+  int *esp = (int *)(f->esp);
+  validate_address(esp);
+
+
   int call_number = *(int *)esp;
   switch (call_number)
   	{
-
   	case SYS_HALT:
   		sys_halt ();
   		break;
   	case SYS_EXIT:
+      validate_address (esp + 1);
   		sys_exit (((int *)esp)[1]);
   		break;
   	case SYS_EXEC:
+      validate_address (esp + 1);
   		f->eax = sys_exec (((char **)esp)[1]);
   		break;
   	case SYS_WAIT:
+      validate_address (esp + 1);
   		f->eax = sys_wait (((tid_t *)esp)[1]);
   		break;
   	case SYS_CREATE:
+      validate_address (esp + 2);
   		f->eax = sys_create (((char **)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_REMOVE:
+      validate_address (esp + 1);
   		f->eax = sys_remove (((char **)esp)[1]);
   		break;
   	case SYS_OPEN:
+      validate_address (esp + 1);
   		f->eax = sys_open (((char **)esp)[1]);
   		break;
   	case SYS_FILESIZE:
+      validate_address (esp + 1);
   		f->eax = sys_filesize (((int *)esp)[1]);
   		break;
   	case SYS_READ:
+      validate_address (esp + 3);
   		f->eax = sys_read (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
   		break;
   	case SYS_WRITE:
+      validate_address (esp + 3);
   		f->eax = sys_write (((int *)esp)[1], ((void **)esp)[2], ((int *)esp)[3]);
   		break;
   	case SYS_SEEK:
+      validate_address (esp + 2);
   		sys_seek (((int *)esp)[1], ((int *)esp)[2]);
   		break;
   	case SYS_TELL:
+      validate_address (esp + 1);
   		f->eax = sys_tell (((int *)esp)[1]);
   		break;
   	case SYS_CLOSE:
+      validate_address (esp + 1);
   		sys_close (((int *)esp)[1]);
   		break;
+    default:
+      sys_exit (-1);
   	}
 }
 
