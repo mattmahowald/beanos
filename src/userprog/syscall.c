@@ -317,8 +317,8 @@ static struct fd_to_file *
 get_file_struct_from_fd (int fd)
 {
   struct list_elem *file_e;
-  struct list files = thread_current ()->files;
-  for (file_e = list_begin (&files); file_e != list_end (&files); 
+  struct list *files = &thread_current ()->files;
+  for (file_e = list_begin (files); file_e != list_end (files); 
        file_e = list_next (file_e))
     {
       struct fd_to_file *file = list_entry (file_e, struct fd_to_file, elem);
