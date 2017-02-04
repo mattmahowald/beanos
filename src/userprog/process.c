@@ -43,15 +43,20 @@ process_execute (const char *cmdline)
     return TID_ERROR;
   strlcpy (cmd_copy, cmdline, PGSIZE);
 
+  char cmd_copy_2[strlen(cmdline) + 1];
+  char *filename, *save_ptr;
+  strlcpy (cmd_copy_2, cmdline, strlen(cmdline) + 1);
+  filename = strtok_r (cmd_copy_2, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (cmdline, PRI_DEFAULT, start_process, cmd_copy);
+  tid = thread_create (filename, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
     palloc_free_page (cmd_copy); 
   else
     {
       struct thread *child = thread_get_from_tid (tid); 
       child->parent = thread_current ();
-      printf("pushing thread %s to children list\n", child->name);
+      // printf("pushing thread %s to children list\n", child->name);
       list_push_back (&thread_current ()->children, &child->child_elem);
       sema_down (&child->loaded);
     }
@@ -132,6 +137,8 @@ process_wait (tid_t child_tid)
   // TODO somehow deal with kernel-killed threads ... think we're fine because kill returns -1
   child->reaped = true;
   int status = child->ret_status;
+  list_remove (&child->child_elem);
+  sema_up (&child->safe_to_die);
   return status;
 }
 

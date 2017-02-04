@@ -75,12 +75,14 @@ sys_exit (int status)
   //    is kernel doing this?
 	// printf ("EXIT\n");
   struct list_elem *child_e;
-  struct list children = thread_current ()->children;
-
-  for (child_e = list_begin (&children); child_e != list_end (&children);
+  struct list *children = &thread_current ()->children;
+  // printf("%s\n", thread_current ()->name);
+  // printf("list size is %d\n", list_size(children));
+  for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
       struct thread *t = list_entry (child_e, struct thread, child_elem);
+      // printf("Sema-ing up on thread %s\n", t->name);
       sema_up (&t->safe_to_die);
     }
   thread_current ()->ret_status = status;
