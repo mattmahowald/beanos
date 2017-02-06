@@ -110,6 +110,7 @@ struct thread
     struct semaphore safe_to_die;       /* Semahphore to be signaled when clear to die */
     bool reaped;                        /* Set to true on wait(). */
     int ret_status;                     /* Return status set upon exit or kill. */
+    bool load_success;
 
 #endif
 

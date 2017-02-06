@@ -492,6 +492,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->reaped = false;
   sema_init (&t->done, 0);
   sema_init (&t->loaded, 0);
+  t->load_success = true;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

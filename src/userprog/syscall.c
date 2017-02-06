@@ -203,7 +203,7 @@ static int
 sys_write (int fd, void *buffer, uint32_t size)
 {
 	// printf ("WRITE\n");
-	int written = -1;
+	int written = 0;
   validate_address (buffer);
   validate_address ((char *)buffer + size);
 	if (fd == STDOUT_FILENO) 

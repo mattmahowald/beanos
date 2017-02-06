@@ -59,6 +59,8 @@ process_execute (const char *cmdline)
       // printf("pushing thread %s to children list\n", child->name);
       list_push_back (&thread_current ()->children, &child->child_elem);
       sema_down (&child->loaded);
+      if (!child->load_success)
+        return -1;
     }
   return tid;
 }
@@ -110,11 +112,11 @@ process_wait (tid_t child_tid)
 {
   // printf("%s\n", "entered wait call");
   struct list_elem *child_e;
-  struct list children = thread_current ()->children;
+  struct list *children = &thread_current ()->children;
   enum intr_level old_level = intr_disable ();
   // printf("%s\n", "got child list");
   struct thread *child = NULL;
-  for (child_e = list_begin (&children); child_e != list_end (&children);
+  for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
       struct thread *t = list_entry (child_e, struct thread, child_elem);
@@ -280,11 +282,14 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   /* Open executable file. */  
   file = filesys_open (filename);
+
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", cmdline);
+      thread_current ()->load_success = false;
       goto done; 
     }
+  
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -309,8 +314,9 @@ load (char *cmdline, void (**eip) (void), void **esp)
         goto done;
       file_seek (file, file_ofs);
 
-      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
+      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr) {
         goto done;
+      }
       file_ofs += sizeof phdr;
       switch (phdr.p_type) 
         {
@@ -357,6 +363,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
           break;
         }
     }
+
   // printf ("checkpoint\n");
 
   /* Set up stack. */
@@ -372,6 +379,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
 
+  file_deny_write (file);
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
