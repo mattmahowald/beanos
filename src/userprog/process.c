@@ -153,6 +153,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
 
   /* Release any locks still held. */
+
   struct list_elem *lock_e;
   struct list *locks = &cur->locks_held;
   for (lock_e = list_begin (locks); lock_e != list_end (locks);
@@ -163,7 +164,7 @@ process_exit (void)
     }
 
   /* Close any remaining open files and free the fd mapping structs
-     associated with them. */
+     associated with them, including this process's executable. */
 
   struct list *files = &cur->files;
   while (!list_empty (files))
@@ -175,7 +176,9 @@ process_exit (void)
       intr_set_level (old_level);
       free (file);        
     }
-
+  enum intr_level old_level = intr_disable ();
+  file_close (cur->exec_file);
+  intr_set_level (old_level);
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
 
@@ -417,12 +420,13 @@ load (char *cmdline, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
-
+  t->exec_file = file;
+  enum intr_level old_level = intr_disable ();
   file_deny_write (file);
+  intr_set_level (old_level);
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
-  sema_up (&(thread_current ()->loaded));
+  sema_up (&(t->loaded));
   return success;
 }
 

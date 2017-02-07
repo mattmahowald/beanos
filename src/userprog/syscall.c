@@ -197,7 +197,6 @@ sys_read (int fd, void *buffer, uint32_t size)
 static int
 sys_write (int fd, void *buffer, uint32_t size)
 {
-	// printf ("WRITE\n");
 	int written = 0;
   validate_address (buffer);
   validate_address ((char *)buffer + size);
@@ -209,7 +208,6 @@ sys_write (int fd, void *buffer, uint32_t size)
 		}
 	else
     {
-      // TODO potenitally make sure not writing ot STDIN
       if (fd == STDIN_FILENO)
         sys_exit (-1);
       // ALSO TODO, maybe seperate this line into multiple to check for void return val
@@ -228,7 +226,6 @@ sys_write (int fd, void *buffer, uint32_t size)
 static void
 sys_seek (int fd, uint32_t position)
 {
-	// printf ("SEEK\n");
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return;
@@ -240,7 +237,6 @@ sys_seek (int fd, uint32_t position)
 static uint32_t
 sys_tell (int fd)
 {
-	// printf ("TELL\n");
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return 0;
@@ -250,7 +246,6 @@ sys_tell (int fd)
 static void
 sys_close (int fd)
 {
-	// printf ("CLOSE\n");
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
     return;
@@ -311,15 +306,15 @@ syscall_handler (struct intr_frame *f UNUSED)
   		break;
   	case SYS_SEEK:
       validate_address (esp + 2);
-  		sys_seek (((int *)esp)[1], ((int *)esp)[2]);
+  		sys_seek (esp[1], esp[2]);
   		break;
   	case SYS_TELL:
       validate_address (esp + 1);
-  		f->eax = sys_tell (((int *)esp)[1]);
+  		f->eax = sys_tell (esp[1]);
   		break;
   	case SYS_CLOSE:
       validate_address (esp + 1);
-  		sys_close (((int *)esp)[1]);
+  		sys_close (esp[1]);
   		break;
     default:
       sys_exit (-1);

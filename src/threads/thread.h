@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+// #include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -99,6 +100,7 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 
     struct list files;                  /* List of open files using fd_to_files. */
+    struct file *exec_file;
 
     struct list children;               /* List of child threads. */
     struct list_elem child_elem;        /* List element for parent's children. */
