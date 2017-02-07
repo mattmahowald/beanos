@@ -14,6 +14,7 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
@@ -149,11 +150,37 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
-  uint32_t *pd;
 
-  // TODO maybe free thread resources?
+
+  struct list_elem *file_e;
+  struct list *files = &cur->files;
+  for (file_e = list_begin (files); file_e != list_end (files); 
+       file_e = list_next (file_e))
+    {
+      struct fd_to_file *file = list_entry (file_e, struct fd_to_file, elem);
+      file_close (file->f);
+      free (file);        
+    }
+
+  /* Tells any children that parent is exiting. They are free to dispose of 
+     resources as parent will never call wait. */
+
+  struct list_elem *child_e;
+  struct list *children = &cur->children;
+  enum intr_level old_level = intr_disable ();
+  for (child_e = list_begin (children); child_e != list_end (children);
+       child_e = list_next (child_e))
+    {
+      struct thread *t = list_entry (child_e, struct thread, child_elem);
+      sema_up (&t->safe_to_die);
+    }
+  intr_set_level (old_level);
+  
+  sema_down (&cur->safe_to_die);
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
+  uint32_t *pd;
   pd = cur->pagedir;
   if (pd != NULL) 
     {
