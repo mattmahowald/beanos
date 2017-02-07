@@ -479,6 +479,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init (&t->locks_held);
   list_init (&t->files); 
 
   // TODO do we need to block

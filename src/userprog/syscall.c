@@ -34,13 +34,6 @@ static struct fd_to_file *get_file_struct_from_fd (int fd);
 static struct lock filesys_lock;
 static int next_fd = 2;
 
-struct fd_to_file 
-  {
-    int fd;
-    struct file *f;
-    struct list_elem elem;
-  };
-
 void syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -143,7 +136,9 @@ sys_open (const char *file)
 {
   validate_address((void *)file);
   // add lock for file ops
+  lock_acquire (&filesys_lock);
   struct file *f = filesys_open (file);
+  lock_release (&filesys_lock);
   if (f == NULL)
     return -1; 
 

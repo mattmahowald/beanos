@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -151,35 +152,46 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
 
-
-  struct list_elem *file_e;
-  struct list *files = &cur->files;
-  for (file_e = list_begin (files); file_e != list_end (files); 
-       file_e = list_next (file_e))
+  /* Release any locks still held. */
+  struct list_elem *lock_e;
+  struct list *locks = &cur->locks_held;
+  for (lock_e = list_begin (locks); lock_e != list_end (locks);
+       lock_e = list_next (lock_e))
     {
+      struct lock *l = list_entry (lock_e, struct lock, elem);
+      lock_release (l);
+    }
+
+  /* Close any remaining open files and free the fd mapping structs
+     associated with them. */
+
+  struct list *files = &cur->files;
+  while (!list_empty (files))
+    {
+      struct list_elem *file_e = list_pop_front (files);
       struct fd_to_file *file = list_entry (file_e, struct fd_to_file, elem);
+      enum intr_level old_level = intr_disable ();
       file_close (file->f);
+      intr_set_level (old_level);
       free (file);        
     }
 
-  /* Tells any children that parent is exiting. They are free to dispose of 
+  /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
 
   struct list_elem *child_e;
   struct list *children = &cur->children;
-  enum intr_level old_level = intr_disable ();
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
       struct thread *t = list_entry (child_e, struct thread, child_elem);
       sema_up (&t->safe_to_die);
     }
-  intr_set_level (old_level);
-  
   sema_down (&cur->safe_to_die);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
+
   uint32_t *pd;
   pd = cur->pagedir;
   if (pd != NULL) 
