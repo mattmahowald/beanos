@@ -103,7 +103,6 @@ struct thread
     struct file *exec_file;             /* Read only executable. */
 
     struct list children;               /* List of child threads. */
-    struct thread *parent;              /* Parent thread. */
     struct child_thread *self;          /* Allocated struct for thread metadata */
     struct semaphore loaded;            /* Semaphore to signal when loaded. */
     struct semaphore ready_to_start;    /* Semaphore to signal when done. */

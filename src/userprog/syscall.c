@@ -87,14 +87,31 @@ void
 sys_exit (int status)
 {
   struct thread *cur = thread_current ();
-  if (cur->parent != NULL)
+  
+  /* The way we implemented wait, we need to disable interrupts here. 
+     Consider the case where, without disabling intterupts, cur's parent
+     (P) is in process_exit during cur's (C) sys_exit call. C checks that 
+     self != NULL, which it isn't, and enters the if statement. It is then
+     preempted and P takes the processor. P checks that C is still running 
+     (which it is, as running has not yet been set to false), sets C's
+     self field to NULL and free's the child thread object that self 
+     used to point to. At this point, C will attempt to access and change
+     addresses that have already been freed by the parent, and sema-up a 
+     sema that no longer exists. A shared lock struct could help minimize
+     the risk of this condition, but would not eliminate it (the same 
+     situation could occur, where after checking self != NULL C would attempt 
+     to acquire a lock that no longer exists. */
+     
+  enum intr_level old_level = intr_disable ();  
+  struct child_thread *self = cur->self;
+  if (self != NULL)
     {
-      struct child_thread *self = cur->self;
       self->exit_status = status;
       self->running = false;
       sema_up (&self->done);
     }
-  
+  intr_set_level (old_level);
+
   printf("%s: exit(%d)\n", cur->name, status);
   
   thread_exit ();

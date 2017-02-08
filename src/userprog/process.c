@@ -80,7 +80,6 @@ process_execute (const char *cmdline)
 static bool
 initialize_child_thread (struct thread *child, struct thread *cur, tid_t tid)
 {
-  child->parent = cur;
   struct child_thread *child_ = malloc (sizeof (struct child_thread));
   if (!child_)
     return false;
@@ -217,9 +216,14 @@ process_exit (void)
        child_e = list_next (child_e))
     {
       struct child_thread *c = list_entry (child_e, struct child_thread, elem);
+      
+      /* The way we implemented wait, we needed to disable interrupts here. 
+         See sys_exit in syscall.c for a detailed overview a potential race
+         otherwise. The same race could occur here (in reverse) should we 
+         be preempted immediately after entering the if statement. */
       enum intr_level old_level = intr_disable();
       if (c->running)
-        c->t->parent = NULL;
+        c->t->self = NULL;
       intr_set_level(old_level);
       free (c);
     }

@@ -8,8 +8,8 @@ struct child_thread {
 	struct semaphore done;
 	tid_t tid;
 	int exit_status;
-	struct list_elem elem;
 	bool running;
+	struct list_elem elem;
 };
 
 
