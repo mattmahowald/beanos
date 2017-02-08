@@ -60,17 +60,19 @@ process_execute (const char *cmdline)
   struct thread *cur = thread_current ();
   struct thread *child = thread_get_from_tid (tid); 
   sema_down (&child->loaded);
-
+  // if (child->tid == 95)
+    // printf("were in the motherfucker rn\n");
   if (!child->load_success)
     {
-      return -1;
+      return TID_ERROR;
     }
-
+  // if (child->tid == 95)
+    // printf("apparently this bitch is loaded\n");
   child->parent = cur;
   struct child_thread *child_ = malloc (sizeof (struct child_thread));
   if (!child_)
   {
-    return -1;
+    return TID_ERROR;
   }
 
   child_->tid = tid;
@@ -81,6 +83,8 @@ process_execute (const char *cmdline)
   child->self = child_;
   list_push_back (&cur->children, &child_->elem);
   thread_unblock (child);
+  // if (child->tid == 95)
+    // printf("apparently this bitch is good to ger\n");
   return tid;
 }
 
@@ -104,7 +108,11 @@ start_process (void *cmdline_)
   /* If load failed, quit. */
   palloc_free_page (cmdline);
   if (!success)
-    sys_exit (-1);
+    {
+      // if (thread_current ()->tid == 95)
+          // printf("this bitch is busted \n");
+      sys_exit (-1);
+    }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -112,6 +120,8 @@ start_process (void *cmdline_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+  if (thread_current ()->tid == 95)
+    printf("lets get this bitch started \n");   
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -146,17 +156,21 @@ process_wait (tid_t child_tid)
 
   if (child == NULL) {
     // printf("Child is null\n");
-    if (child_tid == 95)
-      printf("no child added to list");
+    // if (child_tid == 95)
+    //   printf("no child added to list");
     return -1;
   }
 
-
+  // if (child_tid == 95)
+  //   printf("about to sema down");
   sema_down (&child->done);
-  
+  // if (child_tid == 95)
+  //   printf("sema'd");
   int status = child->exit_status;
   list_remove (&child->elem);
   free (child);
+  // if (child_tid == 95)
+  //   printf("about to return status of %d", status);
   return status;
 }
 
@@ -348,7 +362,6 @@ load (char *cmdline, void (**eip) (void), void **esp)
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", cmdline);
-      thread_current ()->load_success = false;
       goto done; 
     }
   
@@ -446,6 +459,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   release_filesys_lock();
  done:
   /* We arrive here whether the load is successful or not. */
+  thread_current ()->load_success = success;
   sema_up (&(t->loaded));
   enum intr_level old_level = intr_disable ();
   thread_block ();

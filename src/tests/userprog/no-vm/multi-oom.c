@@ -25,7 +25,7 @@
 #include "tests/lib.h"
 
 static const int EXPECTED_DEPTH_TO_PASS = 30;
-static const int EXPECTED_REPETITIONS = 1;
+static const int EXPECTED_REPETITIONS = 10;
 
 const char *test_name = "multi-oom";
 
@@ -36,10 +36,15 @@ enum child_termination_mode { RECURSE, CRASH };
 static pid_t
 spawn_child (int c, enum child_termination_mode mode)
 {
+  // if (c == 54)
+    // printf("N equals 54!!!\n");
   char child_cmd[128];
   snprintf (child_cmd, sizeof child_cmd,
             "%s %d %s", test_name, c, mode == CRASH ? "-k" : "");
-  return exec (child_cmd);
+  int ex = exec (child_cmd);
+  // if (c == 54)
+    // printf("54 got exec code %d\n", ex);
+  return ex;
 }
 
 /* Open a number of files (and fail to close them).
@@ -112,6 +117,12 @@ main (int argc, char *argv[])
   if (is_at_root)
     msg ("begin");
 
+  // if (n == 54)
+    // printf("molly blazed\n");
+
+  // if (n == 53)
+    // printf("began\n");
+
   /* If -k is passed, crash this process. */
   if (argc > 2 && !strcmp(argv[2], "-k"))
     {
@@ -119,12 +130,19 @@ main (int argc, char *argv[])
       NOT_REACHED ();
     }
 
+  // if (n == 53)
+    // printf("didnt crash cuz not K\n");
+
+
   int howmany = is_at_root ? EXPECTED_REPETITIONS : 1;
   int i, expected_depth = -1;
 
   for (i = 0; i < howmany; i++)
     {
       pid_t child_pid;
+
+      // if (n == 53)
+        // printf("in this fucking loop\n");
 
       /* Spawn a child that will be abnormally terminated.
          To speed the test up, do this only for processes
@@ -140,23 +158,28 @@ main (int argc, char *argv[])
           /* If spawning this child failed, so should
              the next spawn_child below. */
         }
+        // if (n == 53)
+          // printf("about to spawn a recursive child\n");
 
       /* Now spawn the child that will recurse. */
       child_pid = spawn_child (n + 1, RECURSE);
+
+      // if (n == 53)
+        // printf("finished spawning scum\n");
 
       /* If maximum depth is reached, return result. */
       if (child_pid == -1)
         return n;
 
       if (n == 53) {
-        printf("child pid equals %d\n", child_pid);
+        // printf("spawned a child with pid %d\n", child_pid);
       }
 
       /* Else wait for child to report how deeply it was able to recurse. */
       int reached_depth = wait (child_pid);
       if (reached_depth == -1)
         {
-          printf("about to fail on %d\n", n);
+          // printf("about to fail on %d\n", n);
           fail ("wait returned -1.");
         }
       /* Record the depth reached during the first run; on subsequent
@@ -169,6 +192,10 @@ main (int argc, char *argv[])
               i, howmany, expected_depth, reached_depth);
       ASSERT (expected_depth == reached_depth);
     }
+
+  // if (n == 53)
+  //   printf("made it here yayay\n");
+
 
   consume_some_resources ();
 
