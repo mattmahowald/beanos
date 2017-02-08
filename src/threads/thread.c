@@ -486,7 +486,7 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->children);
   // if (t != initial_thread)
   //   t->parent = thread_current ();
-  t->reaped = false;
+  t->waiting = NULL;
   sema_init (&t->done, 0);
   sema_init (&t->loaded, 0);
   t->load_success = true;

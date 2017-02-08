@@ -108,7 +108,7 @@ struct thread
     // TODO change to dead
     struct semaphore done;              /* Semaphore to signal parent when DYING. */
     struct semaphore loaded;            /* Semaphore to signal parent when loaded. */
-    bool reaped;                        /* Set to true on wait(). */
+    struct child_thread *waiting;                        /* Set to true on wait(). */
     bool load_success;
 
 #endif

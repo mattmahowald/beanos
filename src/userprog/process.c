@@ -135,8 +135,9 @@ int
 process_wait (tid_t child_tid) 
 {
   // printf("waiting on %d\n", child_tid);
+  struct thread *cur = thread_current ();
   struct list_elem *child_e;
-  struct list *children = &thread_current ()->children;
+  struct list *children = &cur->children;
   struct child_thread *child = NULL;
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
@@ -154,16 +155,21 @@ process_wait (tid_t child_tid)
     // printf("Child is null\n");
     return -1;
   }
+  enum intr_level old_level = intr_disable ();
+
   if (child->exit_status != INIT_EXIT)
     {
+      intr_set_level (old_level);
       list_remove (&child->elem);
-
       // printf("Child exited with status %d\n", child->exit_status);
       return child->exit_status;
     }
   else 
-    {
-      sema_down (&child->t->done);
+    {      
+      cur->waiting = child;
+      thread_block ();
+      cur->waiting = NULL;
+      intr_set_level (old_level);
     }
   int status = child->exit_status;
   // printf("Child exited with status %d\n", status);

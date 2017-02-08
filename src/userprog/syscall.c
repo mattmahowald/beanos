@@ -64,6 +64,8 @@ sys_exit (int status)
     {
       struct child_thread *self = cur->self;
       self->exit_status = status;
+      if (cur->parent->waiting == cur->self)
+        thread_unblock (cur->parent);
       // cur->self->exit_status = status;
     }
   else
