@@ -103,15 +103,12 @@ struct thread
     struct file *exec_file;
 
     struct list children;               /* List of child threads. */
-    struct list_elem child_elem;        /* List element for parent's children. */
     struct thread *parent;              /* TODO may not be needed. */
-    
+    struct child_thread *self;    
     // TODO change to dead
     struct semaphore done;              /* Semaphore to signal parent when DYING. */
     struct semaphore loaded;            /* Semaphore to signal parent when loaded. */
-    struct semaphore safe_to_die;       /* Semahphore to be signaled when clear to die */
     bool reaped;                        /* Set to true on wait(). */
-    int ret_status;                     /* Return status set upon exit or kill. */
     bool load_success;
 
 #endif

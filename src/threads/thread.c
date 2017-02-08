@@ -484,12 +484,8 @@ init_thread (struct thread *t, const char *name, int priority)
 
   // TODO do we need to block
   list_init (&t->children);
-  if (t != initial_thread)
-    t->parent = thread_current ();
-  if (t == initial_thread || t == idle_thread)
-    sema_init (&t->safe_to_die, 1);
-  else 
-    sema_init (&t->safe_to_die, 0);
+  // if (t != initial_thread)
+  //   t->parent = thread_current ();
   t->reaped = false;
   sema_init (&t->done, 0);
   sema_init (&t->loaded, 0);

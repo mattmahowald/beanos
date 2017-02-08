@@ -22,7 +22,7 @@
 #include "threads/vaddr.h"
 
 #define MAX_ARGS 64
-
+#define INIT_EXIT -12345
 
 static thread_func start_process NO_RETURN;
 static bool load (char *cmdline, void (**eip) (void), void **esp);
@@ -53,17 +53,39 @@ process_execute (const char *cmdline)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (filename, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (cmd_copy); 
-  else
     {
-      struct thread *child = thread_get_from_tid (tid); 
-      child->parent = thread_current ();
-      // printf("pushing thread %s to children list\n", child->name);
-      list_push_back (&thread_current ()->children, &child->child_elem);
-      sema_down (&child->loaded);
-      if (!child->load_success)
-        return -1;
+      palloc_free_page (cmd_copy);
+      return TID_ERROR; 
+    }  
+  
+  struct thread *cur = thread_current ();
+  struct thread *child = thread_get_from_tid (tid); 
+  sema_down (&child->loaded);
+
+  if (!child->load_success)
+    {
+      // printf("%s\n", "loading failed");
+      return -1;
     }
+
+  // printf("Just assigned a parent to thread %d\n", child->tid);
+  child->parent = cur;
+  // printf("pushing thread %s to children list\n", child->name);
+  struct child_thread *child_ = malloc (sizeof (struct child_thread));
+  // TODO this is not right, panic
+  if (!child_)
+  {
+    // printf("%s\n", "malloc failed");
+    return -1;
+  }
+
+  child_->tid = tid;
+  child_->t = child;
+  child_->exit_status = INIT_EXIT;
+  child->self = child_;
+  // printf("About to push child with tid %d %d\n", child_->t->tid, child_->tid); 
+  list_push_back (&cur->children, &child_->elem);
+  thread_unblock (child);
   return tid;
 }
 
@@ -87,8 +109,8 @@ start_process (void *cmdline_)
 
   /* If load failed, quit. */
   palloc_free_page (cmdline);
-  if (!success) 
-    thread_exit ();
+  if (!success)
+    sys_exit (-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -112,37 +134,41 @@ start_process (void *cmdline_)
 int
 process_wait (tid_t child_tid) 
 {
-  // printf("%s\n", "entered wait call");
+  // printf("waiting on %d\n", child_tid);
   struct list_elem *child_e;
   struct list *children = &thread_current ()->children;
-  enum intr_level old_level = intr_disable ();
-  // printf("%s\n", "got child list");
-  struct thread *child = NULL;
+  struct child_thread *child = NULL;
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
-      struct thread *t = list_entry (child_e, struct thread, child_elem);
-      // printf("%s\n", t->name);
-      if (t->tid == child_tid)
+      struct child_thread *c = list_entry (child_e, struct child_thread, elem);
+      // printf("At least one child here %d %d %d\n", c->t->tid, c->tid, c->exit_status);
+      if (c->tid == child_tid)
         {
-          // printf("%s\n", "found child");
-          child = t;
+          child = c;
           break;
         }
     }
-  // printf("%s\n", "didnt find child");
-  intr_set_level (old_level);  
 
-  if (child == NULL || /* TODO check not valid TID */ false || child->reaped)
+  if (child == NULL) {
+    // printf("Child is null\n");
     return -1;
-  // printf("Main thread is about to sema down for children\n");  
-  sema_down (&child->done);
-  // printf("Main thread just woke up ie children finished\n");
-  // TODO somehow deal with kernel-killed threads ... think we're fine because kill returns -1
-  child->reaped = true;
-  int status = child->ret_status;
-  list_remove (&child->child_elem);
-  sema_up (&child->safe_to_die);
+  }
+  if (child->exit_status != INIT_EXIT)
+    {
+      list_remove (&child->elem);
+
+      // printf("Child exited with status %d\n", child->exit_status);
+      return child->exit_status;
+    }
+  else 
+    {
+      sema_down (&child->t->done);
+    }
+  int status = child->exit_status;
+  // printf("Child exited with status %d\n", status);
+  list_remove (&child->elem);
+  free (child);
   return status;
 }
 
@@ -179,6 +205,7 @@ process_exit (void)
   enum intr_level old_level = intr_disable ();
   file_close (cur->exec_file);
   intr_set_level (old_level);
+  
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
 
@@ -187,10 +214,12 @@ process_exit (void)
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
-      struct thread *t = list_entry (child_e, struct thread, child_elem);
-      sema_up (&t->safe_to_die);
+      struct child_thread *c = list_entry (child_e, struct child_thread, elem);
+      enum intr_level old_level = intr_disable();
+      if (c->exit_status == INIT_EXIT)
+        c->t->parent = NULL;
+      intr_set_level(old_level);
     }
-  sema_down (&cur->safe_to_die);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -304,6 +333,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (char *cmdline, void (**eip) (void), void **esp) 
 {
+  // printf("About to load %s\n", cmdline);
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -322,9 +352,10 @@ load (char *cmdline, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
-  /* Open executable file. */  
+  /* Open executable file. */ 
+  acquire_filesys_lock ();
   file = filesys_open (filename);
-
+  release_filesys_lock ();
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", cmdline);
@@ -411,7 +442,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   /* Set up stack. */
   // TODO remove shit
   if (!setup_stack (esp, cmdline)) {
-    printf("Stack not setup\n");
+    // printf("Stack not setup\n");
     goto done;
   }
   // printf("Stack setup\n");
@@ -421,12 +452,16 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
   t->exec_file = file;
-  enum intr_level old_level = intr_disable ();
+  acquire_filesys_lock ();
   file_deny_write (file);
-  intr_set_level (old_level);
+  release_filesys_lock();
  done:
   /* We arrive here whether the load is successful or not. */
   sema_up (&(t->loaded));
+  enum intr_level old_level = intr_disable ();
+  thread_block ();
+  intr_set_level (old_level);
+
   return success;
 }
 

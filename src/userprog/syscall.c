@@ -59,10 +59,19 @@ sys_halt (void)
 void
 sys_exit (int status)
 {
-  thread_current ()->ret_status = status;
-  sema_up (&thread_current ()->done);
+  struct thread *cur = thread_current ();
+  if (cur->parent != NULL)
+    {
+      struct child_thread *self = cur->self;
+      self->exit_status = status;
+      // cur->self->exit_status = status;
+    }
+  else
+    printf("parent of %d is null for some reason\n", cur->tid);
+  // printf("I am exiting with status %d\n", status);
+  sema_up (&cur->done);
   
-  char *name = thread_current ()->name;
+  char *name = cur->name;
   printf("%s: exit(%d)\n", name, status);
   
   thread_exit ();
@@ -322,3 +331,16 @@ get_file_struct_from_fd (int fd)
     }
   return NULL; 
 }
+
+void 
+acquire_filesys_lock ()
+{
+  lock_acquire (&filesys_lock);
+}
+
+void 
+release_filesys_lock ()
+{
+  lock_release (&filesys_lock);
+}
+
