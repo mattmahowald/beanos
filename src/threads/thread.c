@@ -480,11 +480,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_init (&t->locks_held);
+
+  /* Initialize userprogram data. */
   list_init (&t->files); 
-
   list_init (&t->children);
-
   sema_init (&t->loaded, 0);
+  sema_init (&t->done, 0);
   t->load_success = true;
 
   old_level = intr_disable ();

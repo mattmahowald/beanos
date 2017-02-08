@@ -25,6 +25,9 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (char *cmdline, void (**eip) (void), void **esp);
+static bool initialize_child_thread (struct thread *child, struct thread *cur, 
+                                     tid_t tid);
+static void dispose_resources (struct thread *cur);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -33,7 +36,6 @@ static bool load (char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *cmdline) 
 {
-  // printf("process.c:process_execute %s\n", cmdline);
   char *cmd_copy;
   tid_t tid;
 
@@ -57,24 +59,33 @@ process_execute (const char *cmdline)
       return TID_ERROR; 
     }  
   
+  /* Wait on child to load executable and stack then verify success. */
   struct thread *cur = thread_current ();
   struct thread *child = thread_get_from_tid (tid); 
   sema_down (&child->loaded);
-  // if (child->tid == 95)
-    // printf("were in the motherfucker rn\n");
+
   if (!child->load_success)
-    {
-      return TID_ERROR;
-    }
-  // if (child->tid == 95)
-    // printf("apparently this bitch is loaded\n");
+    return TID_ERROR;
+
+  if (!initialize_child_thread (child, cur, tid))
+    return TID_ERROR;
+
+  /* Wait for the child to finish */
+  sema_up (&child->done);
+
+  return tid;
+}
+
+/* Initialize struct and meta data for a thread's child. */
+static bool
+initialize_child_thread (struct thread *child, struct thread *cur, tid_t tid)
+{
   child->parent = cur;
   struct child_thread *child_ = malloc (sizeof (struct child_thread));
   if (!child_)
-  {
-    return TID_ERROR;
-  }
+    return false;
 
+  /* Initialize meta data for the child_thread. */
   child_->tid = tid;
   child_->t = child;
   child_->exit_status = -1;
@@ -82,12 +93,10 @@ process_execute (const char *cmdline)
   sema_init (&child_->done, 0);
   child->self = child_;
   list_push_back (&cur->children, &child_->elem);
-  thread_unblock (child);
-  // if (child->tid == 95)
-    // printf("apparently this bitch is good to ger\n");
-  return tid;
-}
 
+  return true;
+}
+  
 /* A thread function that loads a user process and starts it
    running. */
 static void
@@ -108,11 +117,7 @@ start_process (void *cmdline_)
   /* If load failed, quit. */
   palloc_free_page (cmdline);
   if (!success)
-    {
-      // if (thread_current ()->tid == 95)
-          // printf("this bitch is busted \n");
-      sys_exit (-1);
-    }
+    sys_exit (-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -120,8 +125,6 @@ start_process (void *cmdline_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  if (thread_current ()->tid == 95)
-    printf("lets get this bitch started \n");   
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -138,15 +141,14 @@ start_process (void *cmdline_)
 int
 process_wait (tid_t child_tid) 
 {
-  // printf("waiting on %d\n", child_tid);
   struct list_elem *child_e;
   struct list *children = &thread_current ()->children;
   struct child_thread *child = NULL;
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
-      struct child_thread *c = list_entry (child_e, struct child_thread, elem);
-      // printf("At least one child here %d %d %d\n", c->t->tid, c->tid, c->exit_status);
+      struct child_thread *c = list_entry (child_e, struct child_thread, 
+                                           elem);
       if (c->tid == child_tid)
         {
           child = c;
@@ -154,34 +156,24 @@ process_wait (tid_t child_tid)
         }
     }
 
-  if (child == NULL) {
-    // printf("Child is null\n");
-    // if (child_tid == 95)
-    //   printf("no child added to list");
+  /* If the child is not found in the list, indicating a bad tid, a
+     child that has been reaped, or a thread that is not a child, fail. */
+  if (child == NULL) 
     return -1;
-  }
 
-  // if (child_tid == 95)
-  //   printf("about to sema down");
   sema_down (&child->done);
-  // if (child_tid == 95)
-  //   printf("sema'd");
+
   int status = child->exit_status;
   list_remove (&child->elem);
   free (child);
-  // if (child_tid == 95)
-  //   printf("about to return status of %d", status);
+
   return status;
 }
 
-/* Free the current process's resources. */
-void
-process_exit (void)
+static void
+dispose_resources (struct thread *cur)
 {
-  struct thread *cur = thread_current ();
-
   /* Release any locks still held. */
-
   struct list_elem *lock_e;
   struct list *locks = &cur->locks_held;
   for (lock_e = list_begin (locks); lock_e != list_end (locks);
@@ -193,7 +185,6 @@ process_exit (void)
 
   /* Close any remaining open files and free the fd mapping structs
      associated with them, including this process's executable. */
-
   struct list *files = &cur->files;
   while (!list_empty (files))
     {
@@ -204,13 +195,21 @@ process_exit (void)
       intr_set_level (old_level);
       free (file);        
     }
+}
+
+/* Free the current process's resources. */
+void
+process_exit (void)
+{
+  struct thread *cur = thread_current ();
+  dispose_resources (cur);
+
   enum intr_level old_level = intr_disable ();
   file_close (cur->exec_file);
   intr_set_level (old_level);
   
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
-
   struct list_elem *child_e;
   struct list *children = &cur->children;
   for (child_e = list_begin (children); child_e != list_end (children);
@@ -226,7 +225,6 @@ process_exit (void)
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-
   uint32_t *pd;
   pd = cur->pagedir;
   if (pd != NULL) 
@@ -336,7 +334,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (char *cmdline, void (**eip) (void), void **esp) 
 {
-  // printf("About to load %s\n", cmdline);
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -364,7 +361,6 @@ load (char *cmdline, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", cmdline);
       goto done; 
     }
-  
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -389,9 +385,8 @@ load (char *cmdline, void (**eip) (void), void **esp)
         goto done;
       file_seek (file, file_ofs);
 
-      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr) {
+      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
         goto done;
-      }
       file_ofs += sizeof phdr;
       switch (phdr.p_type) 
         {
@@ -439,15 +434,9 @@ load (char *cmdline, void (**eip) (void), void **esp)
         }
     }
 
-  // printf ("checkpoint\n");
-
   /* Set up stack. */
-  // TODO remove shit
-  if (!setup_stack (esp, cmdline)) {
-    // printf("Stack not setup\n");
+  if (!setup_stack (esp, cmdline)) 
     goto done;
-  }
-  // printf("Stack setup\n");
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -460,10 +449,8 @@ load (char *cmdline, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   thread_current ()->load_success = success;
-  sema_up (&(t->loaded));
-  enum intr_level old_level = intr_disable ();
-  thread_block ();
-  intr_set_level (old_level);
+  sema_up (&t->loaded);
+  sema_down (&t->done);
 
   return success;
 }
@@ -576,6 +563,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
+/* Push all arguments to stack, keeping track of bytes written
+   to ensure the stack stays smaller than one page. */
 static size_t
 push_args_to_stack (void **esp, char *cmdline, 
                     uintptr_t (*argv)[MAX_ARGS], size_t *bytes_used)
@@ -597,6 +586,13 @@ push_args_to_stack (void **esp, char *cmdline,
 
     }
   return argc;
+}
+
+/* Pointer arithmetic to decrement the stack pointer. */
+static void 
+decrement_esp (void **esp)
+{
+  *esp = *(uintptr_t **) esp - 1;
 }
 
 /* Create a minimal stack by mapping a zeroed page at the top of
@@ -627,11 +623,11 @@ setup_stack (void **esp, char *cmdline)
               return false;
             }
 
-          // TODO decompose esp functions (arithmetic is gnar)
+          /* Truncate esp to nearest word. */  
           *esp = (void *) ((uintptr_t) *esp & -4);
           
           /* Push null terminator for argv. */
-          *esp = *(uintptr_t **) esp - 1;
+          decrement_esp (esp);
           memset (*esp, 0, sizeof(uintptr_t));
           int i;
           for (i = argc - 1; i >= 0; i--) {
@@ -640,16 +636,15 @@ setup_stack (void **esp, char *cmdline)
           }
 
           /* Push pointer to argv. */
-          *esp = *(uintptr_t **) esp - 1;
+          decrement_esp (esp);
           *(uintptr_t **) *esp = *(uintptr_t **) esp + 1;
           
           /* Push argc. */
-          *esp = *(uintptr_t **) esp - 1;
+          decrement_esp (esp);
           *(int *) (*esp) = argc;
 
           /* Push return address space. */
-          *esp = *(uintptr_t **) esp - 1;
-          // hex_dump(*(uintptr_t *)esp, *esp, 8 *sizeof(void *), true);
+          decrement_esp (esp);
         } 
       else
         palloc_free_page (kpage);

@@ -99,14 +99,15 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 
-    struct list files;                  /* List of open files using fd_to_files. */
-    struct file *exec_file;
+    struct list files;                  /* List of open files. */
+    struct file *exec_file;             /* Read only executable. */
 
     struct list children;               /* List of child threads. */
-    struct thread *parent;              /* TODO may not be needed. */
-    struct child_thread *self;    
-    struct semaphore loaded;            /* Semaphore to signal parent when loaded. */
-    bool load_success;
+    struct thread *parent;              /* Parent thread. */
+    struct child_thread *self;          /* Allocated struct for thread metadata */
+    struct semaphore loaded;            /* Semaphore to signal when loaded. */
+    struct semaphore done;              /* Semaphore to signal when done. */
+    bool load_success;                  /* Indicator of succesful load. */
 
 #endif
 
