@@ -22,7 +22,6 @@
 #include "threads/vaddr.h"
 
 #define MAX_ARGS 64
-#define INIT_EXIT -12345
 
 static thread_func start_process NO_RETURN;
 static bool load (char *cmdline, void (**eip) (void), void **esp);
@@ -64,26 +63,22 @@ process_execute (const char *cmdline)
 
   if (!child->load_success)
     {
-      // printf("%s\n", "loading failed");
       return -1;
     }
 
-  // printf("Just assigned a parent to thread %d\n", child->tid);
   child->parent = cur;
-  // printf("pushing thread %s to children list\n", child->name);
   struct child_thread *child_ = malloc (sizeof (struct child_thread));
-  // TODO this is not right, panic
   if (!child_)
   {
-    // printf("%s\n", "malloc failed");
     return -1;
   }
 
   child_->tid = tid;
   child_->t = child;
-  child_->exit_status = INIT_EXIT;
+  child_->exit_status = -1;
+  child_->running = true;
+  sema_init (&child_->done, 0);
   child->self = child_;
-  // printf("About to push child with tid %d %d\n", child_->t->tid, child_->tid); 
   list_push_back (&cur->children, &child_->elem);
   thread_unblock (child);
   return tid;
@@ -95,8 +90,7 @@ static void
 start_process (void *cmdline_)
 {
   char *cmdline = cmdline_;
-  // TODO Remove
-  // printf("process.c:start_process %s\n", cmdline);
+
   struct intr_frame if_;
   bool success;
 
@@ -152,21 +146,15 @@ process_wait (tid_t child_tid)
 
   if (child == NULL) {
     // printf("Child is null\n");
+    if (child_tid == 95)
+      printf("no child added to list");
     return -1;
   }
-  if (child->exit_status != INIT_EXIT)
-    {
-      list_remove (&child->elem);
 
-      // printf("Child exited with status %d\n", child->exit_status);
-      return child->exit_status;
-    }
-  else 
-    {
-      sema_down (&child->t->done);
-    }
+
+  sema_down (&child->done);
+  
   int status = child->exit_status;
-  // printf("Child exited with status %d\n", status);
   list_remove (&child->elem);
   free (child);
   return status;
@@ -216,9 +204,10 @@ process_exit (void)
     {
       struct child_thread *c = list_entry (child_e, struct child_thread, elem);
       enum intr_level old_level = intr_disable();
-      if (c->exit_status == INIT_EXIT)
+      if (c->running)
         c->t->parent = NULL;
       intr_set_level(old_level);
+      free (c);
     }
 
   /* Destroy the current process's page directory and switch back

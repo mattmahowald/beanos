@@ -5,9 +5,11 @@
 
 struct child_thread {
 	struct thread *t;
+	struct semaphore done;
 	tid_t tid;
 	int exit_status;
 	struct list_elem elem;
+	bool running;
 };
 
 

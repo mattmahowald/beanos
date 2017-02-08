@@ -105,10 +105,7 @@ struct thread
     struct list children;               /* List of child threads. */
     struct thread *parent;              /* TODO may not be needed. */
     struct child_thread *self;    
-    // TODO change to dead
-    struct semaphore done;              /* Semaphore to signal parent when DYING. */
     struct semaphore loaded;            /* Semaphore to signal parent when loaded. */
-    bool reaped;                        /* Set to true on wait(). */
     bool load_success;
 
 #endif

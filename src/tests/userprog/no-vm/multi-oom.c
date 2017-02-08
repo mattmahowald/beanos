@@ -25,7 +25,7 @@
 #include "tests/lib.h"
 
 static const int EXPECTED_DEPTH_TO_PASS = 30;
-static const int EXPECTED_REPETITIONS = 10;
+static const int EXPECTED_REPETITIONS = 1;
 
 const char *test_name = "multi-oom";
 
@@ -148,11 +148,17 @@ main (int argc, char *argv[])
       if (child_pid == -1)
         return n;
 
+      if (n == 53) {
+        printf("child pid equals %d\n", child_pid);
+      }
+
       /* Else wait for child to report how deeply it was able to recurse. */
       int reached_depth = wait (child_pid);
       if (reached_depth == -1)
-        fail ("wait returned -1.");
-
+        {
+          printf("about to fail on %d\n", n);
+          fail ("wait returned -1.");
+        }
       /* Record the depth reached during the first run; on subsequent
          runs, fail if those runs do not match the depth achieved on the
          first run. */

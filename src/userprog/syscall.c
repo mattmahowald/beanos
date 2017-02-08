@@ -64,15 +64,11 @@ sys_exit (int status)
     {
       struct child_thread *self = cur->self;
       self->exit_status = status;
-      // cur->self->exit_status = status;
+      self->running = true;
+      sema_up (&self->done);
     }
-  else
-    printf("parent of %d is null for some reason\n", cur->tid);
-  // printf("I am exiting with status %d\n", status);
-  sema_up (&cur->done);
   
-  char *name = cur->name;
-  printf("%s: exit(%d)\n", name, status);
+  printf("%s: exit(%d)\n", cur->name, status);
   
   thread_exit ();
 }
