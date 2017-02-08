@@ -40,6 +40,8 @@ void syscall_init (void)
   lock_init (&filesys_lock);
 }
 
+// TODO validate strings just like buffers
+
 static void
 validate_address (void * address)
 {
