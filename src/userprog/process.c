@@ -70,8 +70,8 @@ process_execute (const char *cmdline)
   if (!initialize_child_thread (child, cur, tid))
     return TID_ERROR;
 
-  /* Wait for the child to finish */
-  sema_up (&child->done);
+  /* Let child proceed, as P/C relationship has been established. */ 
+  sema_up (&child->ready_to_start);
 
   return tid;
 }
@@ -119,6 +119,7 @@ start_process (void *cmdline_)
   if (!success)
     sys_exit (-1);
 
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -353,9 +354,9 @@ load (char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */ 
-  acquire_filesys_lock ();
+  syscall_acquire_filesys_lock ();
   file = filesys_open (filename);
-  release_filesys_lock ();
+  syscall_release_filesys_lock ();
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", cmdline);
@@ -443,14 +444,18 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
   t->exec_file = file;
-  acquire_filesys_lock ();
+  syscall_acquire_filesys_lock ();
   file_deny_write (file);
-  release_filesys_lock();
+  syscall_release_filesys_lock ();
  done:
   /* We arrive here whether the load is successful or not. */
   thread_current ()->load_success = success;
+  
+  /* Let parent know that load process has completed. */
   sema_up (&t->loaded);
-  sema_down (&t->done);
+
+  /* Wait for parent to harvest load_success. */
+  sema_down (&t->ready_to_start);
 
   return success;
 }

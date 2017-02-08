@@ -12,20 +12,21 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include <string.h>
 
 
 static void syscall_handler (struct intr_frame *);
-static void validate_address (void * address);
+static void validate_address (void * address, size_t size);
 static void sys_halt (void);
 static tid_t sys_exec (const char *cmd_line);
-static bool sys_create (const char *file, uint32_t initial_size);
+static bool sys_create (const char *file, unsigned initial_size);
 static bool sys_remove (const char *file);
 static int sys_open (const char *file);
 static int sys_filesize (int fd);
-static int sys_read (int fd, void *buffer, uint32_t size);
-static int sys_write (int fd, void *buffer, uint32_t size);
-static void sys_seek (int fd, uint32_t position);
-static uint32_t sys_tell (int fd);
+static int sys_read (int fd, void *buffer, unsigned size);
+static int sys_write (int fd, void *buffer, unsigned size);
+static void sys_seek (int fd, unsigned position);
+static unsigned sys_tell (int fd);
 static void sys_close (int fd);
 static tid_t sys_wait (tid_t tid);
 static struct fd_to_file *get_file_struct_from_fd (int fd);
@@ -46,12 +47,29 @@ void syscall_init (void)
 /* Helper function that validates the passed pointer as a legal, user
    virtual space address. */
 static void
-validate_address (void * address)
+validate_address (void *address, size_t size)
 {
-  if (!is_user_vaddr(address) || !address)
+  char *start = address;
+  // may need to -1 here
+  char *end = start + size - 1;
+  
+  if (!start)
     sys_exit (-1);
-  uint32_t *page_dir = thread_current ()-> pagedir;
-  if (pagedir_get_page(page_dir, address) == NULL)
+
+  if (is_kernel_vaddr (start) || is_kernel_vaddr (end))
+    sys_exit (-1);
+
+  unsigned *page_dir = thread_current ()-> pagedir;
+  char *cur_addr = start;
+
+  while (cur_addr < end) 
+    {
+      if (!pagedir_get_page (page_dir, cur_addr))
+        sys_exit (-1);
+
+      cur_addr += PGSIZE;
+    }
+  if (!pagedir_get_page (page_dir, end))
     sys_exit (-1);
 }
 
@@ -73,7 +91,7 @@ sys_exit (int status)
     {
       struct child_thread *self = cur->self;
       self->exit_status = status;
-      self->running = true;
+      self->running = false;
       sema_up (&self->done);
     }
   
@@ -88,11 +106,10 @@ sys_exit (int status)
 static int
 sys_exec (const char *cmd_line)
 {
-  validate_address((void *)cmd_line);
+  validate_address ((void *)cmd_line, 1);
+  validate_address ((void *)cmd_line, strlen (cmd_line));
  
-  tid_t tid = process_execute (cmd_line);
-
-  return tid == TID_ERROR ? -1 : tid;
+  return process_execute (cmd_line);
 }
 
 /* System call wait(tid) relies on process_wait to reap child process
@@ -100,22 +117,23 @@ sys_exec (const char *cmd_line)
 static tid_t
 sys_wait (tid_t tid)
 {
-  return process_wait(tid);
+  return process_wait (tid);
 }
 
 /* System call create(file, initial_size) opens a file with the name and
    size passed in by first validating the address of the filename string 
    and then creating a file through the filesys_create function. */
 static bool
-sys_create (const char *file, uint32_t initial_size)
+sys_create (const char *file, unsigned initial_size)
 {
-  validate_address((void *)file);
+  validate_address ((void *)file, 1);
+  validate_address ((void *)file, strlen (file));
 
   // TODO I don't feel great about this filesys lock acquiring stuff
   // Specifically I feel like we should either be calling the helper or not
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   bool success =  filesys_create (file, initial_size);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -126,11 +144,12 @@ sys_create (const char *file, uint32_t initial_size)
 static bool
 sys_remove (const char *file)
 {
-  validate_address((void *)file);
+  validate_address ((void *)file, 1);
+  validate_address ((void *)file, strlen (file));
 
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   bool success = filesys_remove (file);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -143,11 +162,13 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  validate_address((void *)file);
+  validate_address ((void *)file, 1);
+  validate_address ((void *)file, strlen (file));
 
-  lock_acquire (&filesys_lock);
+
+  syscall_acquire_filesys_lock ();
   struct file *f = filesys_open (file);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
   if (!f)
     return -1; 
 
@@ -183,11 +204,10 @@ sys_filesize (int fd)
    file and reads into the passed in buffer, returning the number of bytes 
    read. */
 static int
-sys_read (int fd, void *buffer, uint32_t size)
+sys_read (int fd, void *buffer, unsigned size)
 { 
-  validate_address (buffer);
+  validate_address (buffer, size);
   // TODO check buffer multiple pages 
-  validate_address ((char *)buffer + size);
 
   int read = -1;
 
@@ -212,9 +232,9 @@ sys_read (int fd, void *buffer, uint32_t size)
   struct file *f = fd_->f;
   
   // TODO handle this whole unsigned / int32 conundrum
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   read = file_read (f, buffer, size);
-  lock_release (&filesys_lock); 
+  syscall_release_filesys_lock (); 
 
   return read;
 }
@@ -226,10 +246,9 @@ sys_read (int fd, void *buffer, uint32_t size)
    the file and writes to it from the passed in buffer, returning the 
    number of bytes written. */
 static int
-sys_write (int fd, void *buffer, uint32_t size)
+sys_write (int fd, void *buffer, unsigned size)
 {
-  validate_address (buffer);
-  validate_address ((char *)buffer + size);
+  validate_address (buffer, size);
 
   int written = 0;
   
@@ -249,9 +268,9 @@ sys_write (int fd, void *buffer, uint32_t size)
   struct file *f = fd_->f;
 
   // TODO handle this whole unsigned / int32 conundrum
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   written = file_write (f, buffer, size);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
     
   return written;
 }
@@ -259,18 +278,18 @@ sys_write (int fd, void *buffer, uint32_t size)
 /* System call seek(fd, position) seeks to the passed position in
    the file corresponding to the passed in fd. */
 static void
-sys_seek (int fd, uint32_t position)
+sys_seek (int fd, unsigned position)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     return;
   
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   file_seek (f, position);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
 }
 
-static uint32_t
+static unsigned
 sys_tell (int fd)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
@@ -290,20 +309,25 @@ sys_close (int fd)
   if (f == NULL)
     return;
   
-  lock_acquire (&filesys_lock);
+  syscall_acquire_filesys_lock ();
   file_close (f->f);
-  lock_release (&filesys_lock);
+  syscall_release_filesys_lock ();
   
   list_remove (&f->elem);
 }
 
+#define ARG_ONE 1
+#define ARG_TWO 2
+#define ARG_THREE 3
+
 /* Handles the syscall interrupt, identifying the system call to be
    made then validating the stack and calling the correct system call. */
+
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   int *esp = f->esp;
-  validate_address(esp);
+  validate_address(esp, sizeof (void *));
 
   switch (*esp)
     {
@@ -311,52 +335,52 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_halt ();
       break;
     case SYS_EXIT:
-      validate_address (esp + 1);
-      sys_exit (esp[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      sys_exit (esp[ARG_ONE]);
       break;
     case SYS_EXEC:
-      validate_address (esp + 1);
-      f->eax = sys_exec (((char **)esp)[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_exec (((char **)esp)[ARG_ONE]);
       break;
     case SYS_WAIT:
-      validate_address (esp + 1);
-      f->eax = sys_wait (((tid_t *)esp)[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_wait (((tid_t *)esp)[ARG_ONE]);
       break;
     case SYS_CREATE:
-      validate_address (esp + 2);
-      f->eax = sys_create (((char **)esp)[1], esp[2]);
+      validate_address (esp, 3 * sizeof (void *));
+      f->eax = sys_create (((char **)esp)[ARG_ONE], esp[ARG_TWO]);
       break;
     case SYS_REMOVE:
-      validate_address (esp + 1);
-      f->eax = sys_remove (((char **)esp)[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_remove (((char **)esp)[ARG_ONE]);
       break;
     case SYS_OPEN:
-      validate_address (esp + 1);
-      f->eax = sys_open (((char **)esp)[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_open (((char **)esp)[ARG_ONE]);
       break;
     case SYS_FILESIZE:
-      validate_address (esp + 1);
-      f->eax = sys_filesize (esp[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_filesize (esp[ARG_ONE]);
       break;
     case SYS_READ:
-      validate_address (esp + 3);
-      f->eax = sys_read (esp[1], ((void **)esp)[2], esp[3]);
+      validate_address (esp, 4 * sizeof (void *));
+      f->eax = sys_read (esp[ARG_ONE], ((void **)esp)[ARG_TWO], esp[ARG_THREE]);
       break;
     case SYS_WRITE:
-      validate_address (esp + 3);
-      f->eax = sys_write (esp[1], ((void **)esp)[2], esp[3]);
+      validate_address (esp, 4 * sizeof (void *));
+      f->eax = sys_write (esp[ARG_ONE], ((void **)esp)[ARG_TWO], esp[ARG_THREE]);
       break;
     case SYS_SEEK:
-      validate_address (esp + 2);
-      sys_seek (esp[1], esp[2]);
+      validate_address (esp, 3 * sizeof (void *));
+      sys_seek (esp[ARG_ONE], esp[ARG_TWO]);
       break;
     case SYS_TELL:
-      validate_address (esp + 1);
-      f->eax = sys_tell (esp[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      f->eax = sys_tell (esp[ARG_ONE]);
       break;
     case SYS_CLOSE:
-      validate_address (esp + 1);
-      sys_close (esp[1]);
+      validate_address (esp, 2 * sizeof (void *));
+      sys_close (esp[ARG_ONE]);
       break;
     default:
       sys_exit (-1);
@@ -380,14 +404,18 @@ get_file_struct_from_fd (int fd)
   return NULL; 
 }
 
+/* Acquires the coarse file system lock. Should be called before every filesys 
+   operation. */
 void 
-acquire_filesys_lock ()
+syscall_acquire_filesys_lock ()
 {
   lock_acquire (&filesys_lock);
 }
 
+/* Releases the coarse file system lock. Should be called after every filesys 
+   operation. */
 void 
-release_filesys_lock ()
+syscall_release_filesys_lock ()
 {
   lock_release (&filesys_lock);
 }

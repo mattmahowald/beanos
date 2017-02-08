@@ -485,7 +485,7 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->files); 
   list_init (&t->children);
   sema_init (&t->loaded, 0);
-  sema_init (&t->done, 0);
+  sema_init (&t->ready_to_start, 0);
   t->load_success = true;
 
   old_level = intr_disable ();

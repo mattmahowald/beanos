@@ -106,7 +106,7 @@ struct thread
     struct thread *parent;              /* Parent thread. */
     struct child_thread *self;          /* Allocated struct for thread metadata */
     struct semaphore loaded;            /* Semaphore to signal when loaded. */
-    struct semaphore done;              /* Semaphore to signal when done. */
+    struct semaphore ready_to_start;    /* Semaphore to signal when done. */
     bool load_success;                  /* Indicator of succesful load. */
 
 #endif
