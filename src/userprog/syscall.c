@@ -32,7 +32,8 @@ static struct fd_to_file *get_file_struct_from_fd (int fd);
 
 
 static struct lock filesys_lock; 
-static int next_fd = 2; /* 0 and 1 are reserved for STDIN and STDOUT */
+
+static int next_fd = STDOUT_FILENO + 1; 
 
 void syscall_init (void) 
 {
@@ -42,22 +43,28 @@ void syscall_init (void)
 
 // TODO validate strings just like buffers
 
+/* Helper function that validates the passed pointer as a legal, user
+   virtual space address. */
 static void
 validate_address (void * address)
 {
-	if (!is_user_vaddr(address) || !address)
-		sys_exit (-1);
-	uint32_t *page_dir = thread_current ()-> pagedir;
-	if (pagedir_get_page(page_dir, address) == NULL)
-		sys_exit (-1);
+  if (!is_user_vaddr(address) || !address)
+    sys_exit (-1);
+  uint32_t *page_dir = thread_current ()-> pagedir;
+  if (pagedir_get_page(page_dir, address) == NULL)
+    sys_exit (-1);
 }
 
+/* System call halt() shuts the operating system down. */
 static void
 sys_halt (void)
 {
   shutdown_power_off ();
 }
 
+/* System call exit(status) kills the current thread with return status
+   `status,' then indicates to its parent that it is finished before 
+   printing an exit message and exiting through thread_exit. */
 void
 sys_exit (int status)
 {
@@ -75,30 +82,37 @@ sys_exit (int status)
   thread_exit ();
 }
 
+/* System call exec(cmd_line) executes the command line passed in by
+   first validating the passed string then calling process execute
+   and returning the return value. */
 static int
 sys_exec (const char *cmd_line)
 {
   validate_address((void *)cmd_line);
  
   tid_t tid = process_execute (cmd_line);
-  if (tid == TID_ERROR) 
-    return -1;
 
-	return tid;
+  return tid == TID_ERROR ? -1 : tid;
 }
 
+/* System call wait(tid) relies on process_wait to reap child process
+   identified by tid. */
 static tid_t
 sys_wait (tid_t tid)
 {
   return process_wait(tid);
 }
 
-// TODO what type should this be
+/* System call create(file, initial_size) opens a file with the name and
+   size passed in by first validating the address of the filename string 
+   and then creating a file through the filesys_create function. */
 static bool
 sys_create (const char *file, uint32_t initial_size)
 {
   validate_address((void *)file);
 
+  // TODO I don't feel great about this filesys lock acquiring stuff
+  // Specifically I feel like we should either be calling the helper or not
   lock_acquire (&filesys_lock);
   bool success =  filesys_create (file, initial_size);
   lock_release (&filesys_lock);
@@ -106,6 +120,9 @@ sys_create (const char *file, uint32_t initial_size)
   return success;
 }
 
+/* System call remove(file) removes the file with the name and passed in 
+   by first validating the address of the filename string and then removing 
+   the file through filesys_remove function. */
 static bool
 sys_remove (const char *file)
 {
@@ -118,6 +135,11 @@ sys_remove (const char *file)
   return success;
 }
 
+/* System call open(file) opens a file with the passed in name by
+   first validating the address of the filename string and then safely
+   making a call to filesys_open to get the file struct. This function
+   additionally creates a fd_to_file struct in order for the process
+   to be able to convert its fds to file pointers, and return the fd. */
 static int
 sys_open (const char *file)
 {
@@ -129,6 +151,7 @@ sys_open (const char *file)
   if (!f)
     return -1; 
 
+  /* Define a fd_to_file struct for the process to lookup by fd. */
   struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
   if (!user_file)
     return -1;
@@ -141,6 +164,8 @@ sys_open (const char *file)
   return user_file->fd;
 }
 
+/* System call filesize(fd) gets the filesize of the file corresponding
+   to the passed in fd. */
 static int
 sys_filesize (int fd)
 {
@@ -151,14 +176,22 @@ sys_filesize (int fd)
   return file_length (f);
 }
 
+/* System call read(fd, buffer, size) reads from the file corresponding
+   to the passed in fd by first validating the buffer, then determining 
+   if the fd is STDIN, in which case it reads from the keyboard, or STDOUT,
+   in which case it exits with status -1. Finally, the function finds the 
+   file and reads into the passed in buffer, returning the number of bytes 
+   read. */
 static int
 sys_read (int fd, void *buffer, uint32_t size)
 { 
   validate_address (buffer);
+  // TODO check buffer multiple pages
   validate_address ((char *)buffer + size);
 
   int read = -1;
 
+  /* Read from the keyboard if the fd refers to STDIN. */
   if (fd == STDIN_FILENO)
     {
       size_t i;
@@ -168,9 +201,11 @@ sys_read (int fd, void *buffer, uint32_t size)
       return size;
     }
 
+  /* Return failure if the fd refers to STDOUT. */
   if (fd == STDOUT_FILENO)
     return -1;
 
+  /* Otherwise, find the file and read from it. */
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
   if (!fd_)
     sys_exit (-1);  
@@ -184,6 +219,12 @@ sys_read (int fd, void *buffer, uint32_t size)
   return read;
 }
 
+/* System call write(fd, buffer, size) writes to the file corresponding
+   to the passed in fd by first validating the buffer, then determining 
+   if the fd is STDOUT, in which case it writes to the console, or STDIN,
+   in which case it exits with status -1. Finally, the function finds 
+   the file and writes to it from the passed in buffer, returning the 
+   number of bytes written. */
 static int
 sys_write (int fd, void *buffer, uint32_t size)
 {
@@ -191,13 +232,13 @@ sys_write (int fd, void *buffer, uint32_t size)
   validate_address ((char *)buffer + size);
 
   int written = 0;
-	
+  
   if (fd == STDOUT_FILENO) 
-		{
-      // TODO maybe segment this into sizes of sev hundred
-		  putbuf (buffer, size);
+    {
+      // TODO definitely segment this into sizes of sev hundred
+      putbuf (buffer, size);
       return size;
-		}
+    }
     
   if (fd == STDIN_FILENO)
     sys_exit (-1);
@@ -215,6 +256,8 @@ sys_write (int fd, void *buffer, uint32_t size)
   return written;
 }
 
+/* System call seek(fd, position) seeks to the passed position in
+   the file corresponding to the passed in fd. */
 static void
 sys_seek (int fd, uint32_t position)
 {
@@ -237,6 +280,9 @@ sys_tell (int fd)
   return file_tell (f);
 }  
 
+/* System call close(fd) gets the file corresponding to the passed in 
+   fd, then if the file exists, closes it and removes it from the 
+   process's file list. */
 static void
 sys_close (int fd)
 {
@@ -251,6 +297,8 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
+/* Handles the syscall interrupt, identifying the system call to be
+   made then validating the stack and calling the correct system call. */
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
@@ -258,63 +306,65 @@ syscall_handler (struct intr_frame *f UNUSED)
   validate_address(esp);
 
   switch (*esp)
-  	{
-  	case SYS_HALT:
-  		sys_halt ();
-  		break;
-  	case SYS_EXIT:
+    {
+    case SYS_HALT:
+      sys_halt ();
+      break;
+    case SYS_EXIT:
       validate_address (esp + 1);
-  		sys_exit (esp[1]);
-  		break;
-  	case SYS_EXEC:
+      sys_exit (esp[1]);
+      break;
+    case SYS_EXEC:
       validate_address (esp + 1);
-  		f->eax = sys_exec (((char **)esp)[1]);
-  		break;
-  	case SYS_WAIT:
+      f->eax = sys_exec (((char **)esp)[1]);
+      break;
+    case SYS_WAIT:
       validate_address (esp + 1);
-  		f->eax = sys_wait (((tid_t *)esp)[1]);
-  		break;
-  	case SYS_CREATE:
+      f->eax = sys_wait (((tid_t *)esp)[1]);
+      break;
+    case SYS_CREATE:
       validate_address (esp + 2);
-  		f->eax = sys_create (((char **)esp)[1], esp[2]);
-  		break;
-  	case SYS_REMOVE:
+      f->eax = sys_create (((char **)esp)[1], esp[2]);
+      break;
+    case SYS_REMOVE:
       validate_address (esp + 1);
-  		f->eax = sys_remove (((char **)esp)[1]);
-  		break;
-  	case SYS_OPEN:
+      f->eax = sys_remove (((char **)esp)[1]);
+      break;
+    case SYS_OPEN:
       validate_address (esp + 1);
-  		f->eax = sys_open (((char **)esp)[1]);
-  		break;
-  	case SYS_FILESIZE:
+      f->eax = sys_open (((char **)esp)[1]);
+      break;
+    case SYS_FILESIZE:
       validate_address (esp + 1);
-  		f->eax = sys_filesize (esp[1]);
-  		break;
-  	case SYS_READ:
+      f->eax = sys_filesize (esp[1]);
+      break;
+    case SYS_READ:
       validate_address (esp + 3);
-  		f->eax = sys_read (esp[1], ((void **)esp)[2], esp[3]);
-  		break;
-  	case SYS_WRITE:
+      f->eax = sys_read (esp[1], ((void **)esp)[2], esp[3]);
+      break;
+    case SYS_WRITE:
       validate_address (esp + 3);
-  		f->eax = sys_write (esp[1], ((void **)esp)[2], esp[3]);
-  		break;
-  	case SYS_SEEK:
+      f->eax = sys_write (esp[1], ((void **)esp)[2], esp[3]);
+      break;
+    case SYS_SEEK:
       validate_address (esp + 2);
-  		sys_seek (esp[1], esp[2]);
-  		break;
-  	case SYS_TELL:
+      sys_seek (esp[1], esp[2]);
+      break;
+    case SYS_TELL:
       validate_address (esp + 1);
-  		f->eax = sys_tell (esp[1]);
-  		break;
-  	case SYS_CLOSE:
+      f->eax = sys_tell (esp[1]);
+      break;
+    case SYS_CLOSE:
       validate_address (esp + 1);
-  		sys_close (esp[1]);
-  		break;
+      sys_close (esp[1]);
+      break;
     default:
       sys_exit (-1);
-  	}
+    }
 }
 
+/* Given an fd, finds the file pointer through the current process's open
+   file list. */
 static struct fd_to_file *
 get_file_struct_from_fd (int fd)
 {
