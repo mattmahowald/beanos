@@ -53,17 +53,35 @@ truncate_to_page (char *addr)
   return (char *)((unsigned) addr & -1*PGSIZE);
 }
 
-/* Helper function that validates a passed string as a legal, user
-   virtual space string. We need to do this in two steps, as calling 
-   strlen on an invalid string pointer would crash the kernal. */
+// /* Helper function that validates a passed string as a legal, user
+//    virtual space string. We need to do this in two steps, as calling 
+//    strlen on an invalid string pointer would crash the kernal. */
+// static void
+// validate_string (const char *string)
+// {
+//   /* Make sure that start of string is valid */
+//   validate_address ((void *)string, 1);
+//   /* Make sure that entirety of string is valid. */
+//   validate_address ((void *)string, strlen (string));
+// }
+
 static void
 validate_string (const char *string)
 {
-  /* Make sure that start of string is valid */
-  validate_address ((void *)string, 1);
-  /* Make sure that entirety of string is valid. */
-  validate_address ((void *)string, strlen (string));
+  unsigned cur_addr = (unsigned) string;
+  unsigned *page_dir = thread_current ()-> pagedir;
+  for (;;)
+    {
+      if (is_kernel_vaddr ((char *) cur_addr))
+        sys_exit (-1);
+      if (!pagedir_get_page (page_dir, (char *) cur_addr))
+        sys_exit (-1);
+      while (cur_addr++ % PGSIZE != 0)
+        if (*(char *) cur_addr == '\0')
+          return;
+    }
 }
+
 
 /* Helper function that validates the passed pointer as a legal, user
    virtual space address. */
@@ -271,6 +289,8 @@ sys_read (int fd, void *buffer, unsigned size)
   return read;
 }
 
+#define MAX_TO_PUTBUF 512
+
 /* System call write(fd, buffer, size) writes to the file corresponding
    to the passed in fd by first validating the buffer, then determining 
    if the fd is STDOUT, in which case it writes to the console, or STDIN,
@@ -286,8 +306,14 @@ sys_write (int fd, void *buffer, unsigned size)
   
   if (fd == STDOUT_FILENO) 
     {
-      // TODO definitely segment this into sizes of sev hundred
-      putbuf (buffer, size);
+      char *cur = buffer;
+      int remaining = size;
+      while (remaining > 0)
+        {
+          putbuf (cur, remaining > MAX_TO_PUTBUF ? MAX_TO_PUTBUF : remaining);
+          cur += MAX_TO_PUTBUF;
+          remaining = size - (cur - (char *)buffer);
+        }
       return size;
     }
     
@@ -299,7 +325,6 @@ sys_write (int fd, void *buffer, unsigned size)
     return -1;
   struct file *f = fd_->f;
 
-  // TODO handle this whole unsigned / int32 conundrum
   syscall_acquire_filesys_lock ();
   written = file_write (f, buffer, size);
   syscall_release_filesys_lock ();
