@@ -53,18 +53,8 @@ truncate_to_page (char *addr)
   return (char *)((unsigned) addr & -1*PGSIZE);
 }
 
-// /* Helper function that validates a passed string as a legal, user
-//    virtual space string. We need to do this in two steps, as calling 
-//    strlen on an invalid string pointer would crash the kernal. */
-// static void
-// validate_string (const char *string)
-// {
-//   /* Make sure that start of string is valid */
-//   validate_address ((void *)string, 1);
-//   /* Make sure that entirety of string is valid. */
-//   validate_address ((void *)string, strlen (string));
-// }
-
+/* Helper function that validates the entirety of a string is mapped 
+   user virtual address space. */
 static void
 validate_string (const char *string)
 {
@@ -182,8 +172,6 @@ sys_create (const char *file, unsigned initial_size)
 {
   validate_string (file);
 
-  // TODO I don't feel great about this filesys lock acquiring stuff
-  // Specifically I feel like we should either be calling the helper or not
   syscall_acquire_filesys_lock ();
   bool success =  filesys_create (file, initial_size);
   syscall_release_filesys_lock ();
@@ -281,7 +269,6 @@ sys_read (int fd, void *buffer, unsigned size)
     return -1;  
   struct file *f = fd_->f;
   
-  // TODO handle this whole unsigned / int32 conundrum
   syscall_acquire_filesys_lock ();
   read = file_read (f, buffer, size);
   syscall_release_filesys_lock (); 

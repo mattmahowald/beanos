@@ -275,19 +275,24 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
-/* Returns the thread with tid TID or NULL if not found. */
+/* Returns the thread with tid TID or NULL if not found. Interrupts must 
+   be disabled to ensure the integrity of all_list. */
 struct thread *
 thread_get_from_tid (tid_t tid)
 {
-  // TODO disable intr
+  enum intr_level old_level = intr_disable ();
   struct list_elem *thread_e;
   for (thread_e = list_begin (&all_list); thread_e != list_end (&all_list);
        thread_e = list_next (thread_e))
     {
       struct thread *t = list_entry (thread_e, struct thread, allelem);
       if (t->tid == tid)
+      {
+        intr_set_level (old_level);
         return t;
+      }
     }
+  intr_set_level (old_level);
   return NULL;
 }
 

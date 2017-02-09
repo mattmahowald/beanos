@@ -36,20 +36,20 @@ static void dispose_resources (struct thread *cur);
 tid_t
 process_execute (const char *cmdline) 
 {
-  char *cmd_copy;
+  char *cmd_copy, *filename, *save_ptr;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
+  /* Make a copy of command line.
      Otherwise there's a race between the caller and load(). */
   cmd_copy = palloc_get_page (0);
   if (cmd_copy == NULL)
     return TID_ERROR;
   strlcpy (cmd_copy, cmdline, PGSIZE);
 
-  char cmd_copy_2[strlen(cmdline) + 1];
-  char *filename, *save_ptr;
-  strlcpy (cmd_copy_2, cmdline, strlen(cmdline) + 1);
-  filename = strtok_r (cmd_copy_2, " ", &save_ptr);
+  /* Get the filename i.e. the first token in cmdline */
+  char fn_copy[strlen(cmdline) + 1];
+  strlcpy (fn_copy, cmdline, strlen(cmdline) + 1);
+  filename = strtok_r (fn_copy, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (filename, PRI_DEFAULT, start_process, cmd_copy);
@@ -346,10 +346,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
-  char cmd_copy[strlen(cmdline) + 1];
-  char *filename, *save_ptr;
-  strlcpy (cmd_copy, cmdline, strlen(cmdline) + 1);
-  filename = strtok_r (cmd_copy, " ", &save_ptr);
+  char *filename = t->name;
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
