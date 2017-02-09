@@ -39,7 +39,8 @@ static struct lock filesys_lock;
 static struct lock fd_lock;
 
 
-void syscall_init (void) 
+void 
+syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init (&filesys_lock);
@@ -78,7 +79,6 @@ validate_string (const char *string)
 static void
 validate_address (void *address, size_t size)
 {
-
   char *start = address;
   char *end = start + size - 1;
   

@@ -215,7 +215,8 @@ process_exit (void)
   for (child_e = list_begin (children); child_e != list_end (children);
        child_e = list_next (child_e))
     {
-      struct child_thread *c = list_entry (child_e, struct child_thread, elem);
+      struct child_thread *c = list_entry (child_e, struct child_thread, 
+                                           elem);
       
       /* The way we implemented wait, we needed to disable interrupts here. 
          See sys_exit in syscall.c for a detailed overview a potential race
@@ -270,7 +271,7 @@ process_activate (void)
 typedef uint32_t Elf32_Word, Elf32_Addr, Elf32_Off;
 typedef uint16_t Elf32_Half;
 
- // For use with ELF types in printf(). 
+/* For use with ELF types in printf(). */
 #define PE32Wx PRIx32   /* Print Elf32_Word in hexadecimal. */
 #define PE32Ax PRIx32   /* Print Elf32_Addr in hexadecimal. */
 #define PE32Ox PRIx32   /* Print Elf32_Off in hexadecimal. */
@@ -360,7 +361,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   syscall_release_filesys_lock ();
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", cmdline);
+      printf ("load: %s: open failed\n", filename);
       goto done; 
     }
 
@@ -373,7 +374,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", cmdline);
+      printf ("load: %s: error loading executable\n", filename);
       goto done; 
     }
 
@@ -591,6 +592,10 @@ push_args_to_stack (void **esp, char *cmdline,
       argc++;
 
     }
+  /* Truncate esp to nearest word. */  
+  *bytes_used += (int) *esp % 4;
+  if (*bytes_used <= PGSIZE)
+    *esp = (void *) ((uintptr_t) *esp & -4);
   return argc;
 }
 
@@ -601,61 +606,56 @@ decrement_esp (void **esp)
   *esp = *(uintptr_t **) esp - 1;
 }
 
-/* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
+#define NUM_STD_STACK_ELEMS 4
+
+/* Create a full stack by mapping a zeroed page at the top of
+   user virtual memory and pushing args. */
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
   uint8_t *kpage;
-  bool success = false;
+  uintptr_t argv[MAX_ARGS];
+  size_t bytes_used = 0;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  if (kpage == NULL) 
+    return false;
+
+  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        {
-          *esp = PHYS_BASE;
-          uintptr_t argv[MAX_ARGS];
-          size_t bytes_used = 0;
-          
-          size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
-
-          /* Decrement esp to nearest multiple of four bytes. */
-          bytes_used += (int) *esp % 4;
-          if (bytes_used + sizeof(uintptr_t) * (argc + 4) > PGSIZE)
-            {
-              palloc_free_page (kpage);
-              return false;
-            }
-
-          /* Truncate esp to nearest word. */  
-          *esp = (void *) ((uintptr_t) *esp & -4);
-          
-          /* Push null terminator for argv. */
-          decrement_esp (esp);
-          memset (*esp, 0, sizeof(uintptr_t));
-          int i;
-          for (i = argc - 1; i >= 0; i--) {
-            *esp = *(uintptr_t **) esp - 1;
-            memcpy (*esp, &argv[i], sizeof (uintptr_t));
-          }
-
-          /* Push pointer to argv. */
-          decrement_esp (esp);
-          *(uintptr_t **) *esp = *(uintptr_t **) esp + 1;
-          
-          /* Push argc. */
-          decrement_esp (esp);
-          *(int *) (*esp) = argc;
-
-          /* Push return address space. */
-          decrement_esp (esp);
-        } 
-      else
-        palloc_free_page (kpage);
+      palloc_free_page (kpage);
+      return false;
     }
-  return success;
+  *esp = PHYS_BASE;
+  
+  size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
+
+  /* Check that stack will not overflow. We need to take into acoount 
+     a pointer to each of argv, a null terminator, argv itself, argc,
+     and the return address space. */
+  if (bytes_used + sizeof(uintptr_t) * (argc + NUM_STD_STACK_ELEMS) > PGSIZE)
+    {
+      palloc_free_page (kpage);
+      return false;
+    }
+
+  /* Push null terminator and argv. */
+  decrement_esp (esp);
+  memset (*esp, 0, sizeof(uintptr_t));
+  int i;
+  for (i = argc - 1; i >= 0; i--) {
+    decrement_esp (esp);
+    memcpy (*esp, &argv[i], sizeof (uintptr_t));
+  }
+
+  /* Push pointer to argv, argc, and return address space. */
+  decrement_esp (esp);
+  *(uintptr_t **) *esp = *(uintptr_t **) esp + 1;  
+  decrement_esp (esp);
+  *(int *) (*esp) = argc;
+  decrement_esp (esp);
+
+  return true;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
