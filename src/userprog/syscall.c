@@ -204,7 +204,6 @@ sys_open (const char *file)
 {
   validate_string (file);
 
-
   syscall_acquire_filesys_lock ();
   struct file *f = filesys_open (file);
   syscall_release_filesys_lock ();
@@ -231,7 +230,7 @@ sys_filesize (int fd)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
-    return -1;
+    sys_exit (-1);
 
   return file_length (f);
 }
@@ -261,12 +260,12 @@ sys_read (int fd, void *buffer, unsigned size)
 
   /* Return failure if the fd refers to STDOUT. */
   if (fd == STDOUT_FILENO)
-    return -1;
+    sys_exit (-1);
 
   /* Otherwise, find the file and read from it. */
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
   if (!fd_)
-    return -1;  
+    sys_exit (-1); 
   struct file *f = fd_->f;
   
   syscall_acquire_filesys_lock ();
@@ -305,11 +304,11 @@ sys_write (int fd, void *buffer, unsigned size)
     }
     
   if (fd == STDIN_FILENO)
-    return -1;
+    sys_exit (-1);
 
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
   if (!fd_)
-    return -1;
+    sys_exit (-1);
   struct file *f = fd_->f;
 
   syscall_acquire_filesys_lock ();
@@ -326,19 +325,21 @@ sys_seek (int fd, unsigned position)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
-    return;
+    sys_exit (-1);
   
   syscall_acquire_filesys_lock ();
   file_seek (f, position);
   syscall_release_filesys_lock ();
 }
 
+/* System call tell(fd) tells the user the position of the cursor
+   in the file corresponding to the passed in fd. */
 static unsigned
 sys_tell (int fd)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
-    return 0;
+    sys_exit (-1);
   
   return file_tell (f);
 }  
@@ -351,7 +352,7 @@ sys_close (int fd)
 {
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
-    return;
+    sys_exit (-1);
   
   syscall_acquire_filesys_lock ();
   file_close (f->f);

@@ -652,7 +652,7 @@ setup_stack (void **esp, char *cmdline)
   decrement_esp (esp);
   *(uintptr_t **) *esp = *(uintptr_t **) esp + 1;  
   decrement_esp (esp);
-  *(int *) (*esp) = argc;
+  *(int *) *esp = argc;
   decrement_esp (esp);
 
   return true;
