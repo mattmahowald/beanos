@@ -20,6 +20,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/frame.h"
 
 #define MAX_ARGS 64
 
@@ -543,14 +544,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
+      uint8_t *kpage = frame_get_free ();
       if (kpage == NULL)
         return false;
 
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
-          palloc_free_page (kpage);
+          frame_free (kpage);
           return false; 
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
@@ -558,7 +559,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) 
         {
-          palloc_free_page (kpage);
+          frame_free (kpage);
           return false; 
         }
 
@@ -617,13 +618,13 @@ setup_stack (void **esp, char *cmdline)
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = frame_get_free ();
   if (kpage == NULL) 
     return false;
 
   if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
     {
-      palloc_free_page (kpage);
+      frame_free (kpage);
       return false;
     }
   *esp = PHYS_BASE;
@@ -635,7 +636,7 @@ setup_stack (void **esp, char *cmdline)
      and the return address space. */
   if (bytes_used + sizeof(uintptr_t) * (argc + NUM_STD_STACK_ELEMS) > PGSIZE)
     {
-      palloc_free_page (kpage);
+      frame_free (kpage);
       return false;
     }
 

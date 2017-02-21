@@ -5,17 +5,21 @@
 #include <bitmap.h>
 
 // #defines, enums, typedefs
-#define FRAME_TABLE_ENTRIES 64
+#define MAX_FRAME_TABLE_ENTRIES 1024
 
 /* Big frame explanation comment. */
 
 struct frame {
-    bool free;
+    int index;
     void *data;
 };
 
-/* Array and */
-struct frame *frame_table[FRAME_TABLE_ENTRIES];
-struct bitmap *frame_table_free;
+/* Array and 8iju*/
+void *frame_table[MAX_FRAME_TABLE_ENTRIES];
+struct bitmap *frame_bitmap;
+
+void frame_init (void);
+void *frame_get_free (void);
+void frame_free (void *);
 
 #endif /* vm/frame.h */
