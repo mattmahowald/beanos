@@ -36,6 +36,7 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
+#include "vm/frame.h"
 #endif
 
 /* Page directory with kernel mappings only. */
@@ -119,6 +120,8 @@ main (void)
   thread_start ();
   serial_init_queue ();
   timer_calibrate ();
+
+  frame_init ();
 
 #ifdef FILESYS
   /* Initialize file system. */

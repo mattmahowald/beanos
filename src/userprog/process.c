@@ -42,7 +42,7 @@ process_execute (const char *cmdline)
 
   /* Make a copy of command line.
      Otherwise there's a race between the caller and load(). */
-  cmd_copy = palloc_get_page (0);
+  cmd_copy = frame_get_free ();
   if (cmd_copy == NULL)
     return TID_ERROR;
   strlcpy (cmd_copy, cmdline, PGSIZE);
@@ -56,7 +56,7 @@ process_execute (const char *cmdline)
   tid = thread_create (filename, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
     {
-      palloc_free_page (cmd_copy);
+      frame_free (cmd_copy);
       return TID_ERROR; 
     }  
   
@@ -115,7 +115,7 @@ start_process (void *cmdline_)
   success = load (cmdline, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (cmdline);
+  frame_free (cmdline);
   if (!success)
     sys_exit (-1);
 
@@ -665,7 +665,7 @@ setup_stack (void **esp, char *cmdline)
    otherwise, it is read-only.
    UPAGE must not already be mapped.
    KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
+   with frame_get_free().
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
 static bool
