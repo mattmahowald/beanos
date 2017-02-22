@@ -152,8 +152,15 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if (user && not_present && !page_load (fault_addr)) 
+  printf("in page fault\n");
+  if (user && not_present) 
     {
+      if (page_load (fault_addr))
+          {
+            printf("loaded page\n");
+            return;
+          }
+      // else
         // if write && should_grow_stack ()
         //   grow_stack ()
     }
