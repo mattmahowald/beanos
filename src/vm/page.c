@@ -64,8 +64,11 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
            (uintptr_t) vaddr);
 
-  if (!lazy)
+  if (!lazy) {
     page_load (vaddr);
+    printf("Loaded stack at virtual address  %p\n", vaddr);
+    printf("Loaded frame at physical address %p\n", spte->frame);
+  }
 
   return true;
 }
@@ -92,6 +95,7 @@ page_remove_spte (void *vaddr)
 bool 
 page_load (void *vaddr)
 {
+  printf ("Loading page at virtual address   %p\n", vaddr);
   /* Lookup vaddr in supplementary page table. */
   vaddr = round_to_page (vaddr);
   struct hash *spt = &thread_current ()->spt;
@@ -107,6 +111,7 @@ page_load (void *vaddr)
   // NOTE: if swap is full, frame will panic
   /* Allocate a frame for the virtual page. */
   spte->frame = frame_get ();
+  printf ("Loading frame at physical address %p\n", spte->frame);
 
   switch (spte->location)
     {

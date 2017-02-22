@@ -22,7 +22,7 @@ struct spte {
 
     enum page_location location;
     void *vaddr;
-    struct frame *frame;
+    void *frame;
 
     struct file *file;
 	off_t ofs;

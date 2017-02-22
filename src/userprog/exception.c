@@ -156,10 +156,10 @@ page_fault (struct intr_frame *f)
   if (user && not_present) 
     {
       if (page_load (fault_addr))
-          {
-            printf("loaded page\n");
-            return;
-          }
+        {
+          printf("loaded page\n");
+          return;
+        }
       // else
         // if write && should_grow_stack ()
         //   grow_stack ()
