@@ -12,27 +12,28 @@ enum page_location
   {
     DISK,    	 /* . */
     SWAP,        /* . */
-    FRAME,    	 /* . */
     ZERO         /* . */
   };
 
 struct spte {
     struct hash_elem elem;
+
     enum page_location location;
     void *vaddr;
+    struct frame *frame;
 
-    struct file *f;
-    bool writable;
+    struct file *file;
+	off_t ofs;
     size_t read_bytes;
     size_t zero_bytes;
-	off_t ofs;
 
-    // file descriptor?
+    bool writable;
 };
 
 void page_init (struct hash *spt);
-void page_allocate (bool);
-void page_free (void *);
+bool page_add_spte (enum page_location, void *, struct file *, off_t, size_t, size_t, bool);
+bool page_load (void *);
+void page_remove_spte (void *);
 
 
 

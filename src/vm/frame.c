@@ -6,12 +6,6 @@
 static struct lock bitmap_lock;
 static struct lock array_lock;
 
-void frame_init (void);
-void *frame_get_free (void);
-void frame_free (void *);
-
-
-
 void 
 frame_init ()
 {
@@ -37,8 +31,11 @@ frame_init ()
 // SYNCH
 
 void *
-frame_get_free ()
+frame_get ()
 {
+
+	// TODO: Panic if swap is full or no page eviction
+
 	// find first bitmapped free and return it
 	lock_acquire (&bitmap_lock);
 	size_t index = bitmap_scan_and_flip (frame_bitmap, 0, 1, /* bit that is */ true);
@@ -68,3 +65,13 @@ frame_free (void *frame)
 	lock_release (&array_lock);
 }
 
+void
+frame_cleanup ()
+{
+	int i = 0;
+	while (frame_table[i] != NULL)
+		palloc_free_page(frame_table[i++]);
+
+	bitmap_destroy (frame_bitmap);
+}
+// CLEAN UP FRAME TABLE SHIT
