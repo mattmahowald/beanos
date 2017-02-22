@@ -534,6 +534,8 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
+  printf ("Load segment\n");
+
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -566,6 +568,8 @@ static size_t
 push_args_to_stack (void **esp, char *cmdline, 
                     uintptr_t (*argv)[MAX_ARGS], size_t *bytes_used)
 {
+  printf ("Push args\n");
+
   char *token, *save_ptr;
   size_t argc = 0;
   for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL;
@@ -603,6 +607,7 @@ decrement_esp (void **esp)
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
+  printf ("Setup stack\n");
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 
