@@ -493,7 +493,7 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init (&t->loaded, 0);
   sema_init (&t->ready_to_start, 0);
   t->load_success = true;
-  page_init (&t->spt);
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

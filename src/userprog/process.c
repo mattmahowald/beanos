@@ -108,11 +108,14 @@ start_process (void *cmdline_)
   struct intr_frame if_;
   bool success;
 
+  page_init (&thread_current ()->spt);
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  
   success = load (cmdline, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
