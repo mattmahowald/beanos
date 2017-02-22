@@ -21,6 +21,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 #define MAX_ARGS 64
 
@@ -543,22 +544,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      //uint8_t *kpage = palloc_get_page (0);
-      // if (kpage == NULL)
-      //   return false;
-
-      /* Load this page. */
-      if (!page_new_spte (DISK, upage, file, ofs, page_read_bytes, page_zero_bytes, writable))
+      /* Map this page into the supplemental page table. */
+      if (!page_add_spte (DISK, upage, file, ofs, page_read_bytes, page_zero_bytes, writable))
         return false;
-
-      /* Add the page to the process's address space. */
-      // Either get rid of this or manually set present bit to false
-      // if (!install_page (upage, kpage, writable)) 
-      //   {
-      //     palloc_free_page (kpage);
-      //     return false; 
-      //   }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -616,17 +604,12 @@ setup_stack (void **esp, char *cmdline)
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 
-  kpage = frame_get_free ();
-  if (kpage == NULL) 
+  if (!page_add_spte (ZERO, ((uint8_t *) PHYS_BASE) - PGSIZE, NULL, 0, 0, 0, true))
     return false;
 
-  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
-    {
-      frame_free (kpage);
-      return false;
-    }
   *esp = PHYS_BASE;
-  
+
+
   size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
 
   /* Check that stack will not overflow. We need to take into acoount 
@@ -634,7 +617,7 @@ setup_stack (void **esp, char *cmdline)
      and the return address space. */
   if (bytes_used + sizeof(uintptr_t) * (argc + NUM_STD_STACK_ELEMS) > PGSIZE)
     {
-      frame_free (kpage);
+      page_remove_spte (*esp);
       return false;
     }
 
