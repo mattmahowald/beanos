@@ -42,7 +42,7 @@ process_execute (const char *cmdline)
 
   /* Make a copy of command line.
      Otherwise there's a race between the caller and load(). */
-  cmd_copy = frame_get_free ();
+  cmd_copy = palloc_get_page (0);
   if (cmd_copy == NULL)
     return TID_ERROR;
   strlcpy (cmd_copy, cmdline, PGSIZE);
@@ -56,7 +56,7 @@ process_execute (const char *cmdline)
   tid = thread_create (filename, PRI_DEFAULT, start_process, cmd_copy);
   if (tid == TID_ERROR)
     {
-      frame_free (cmd_copy);
+      palloc_free_page (cmd_copy);
       return TID_ERROR; 
     }  
   
@@ -115,7 +115,7 @@ start_process (void *cmdline_)
   success = load (cmdline, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  frame_free (cmdline);
+  palloc_free_page (cmdline);
   if (!success)
     sys_exit (-1);
 
@@ -544,14 +544,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = frame_get_free ();
+      uint8_t *kpage = palloc_get_page (0);
       if (kpage == NULL)
         return false;
 
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
-          frame_free (kpage);
+          palloc_free_page (kpage);
           return false; 
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
@@ -559,7 +559,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) 
         {
-          frame_free (kpage);
+          palloc_free_page (kpage);
           return false; 
         }
 
