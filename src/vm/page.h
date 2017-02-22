@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include "filesys/file.h"
 
+#define LAZY true
+
 /* States the pages location. */
 enum page_location
   {
@@ -31,7 +33,7 @@ struct spte {
 };
 
 void page_init (struct hash *spt);
-bool page_add_spte (enum page_location, void *, struct file *, off_t, size_t, size_t, bool);
+bool page_add_spte (enum page_location, void *, struct file *, off_t, size_t, size_t, bool, bool);
 bool page_load (void *);
 void page_remove_spte (void *);
 

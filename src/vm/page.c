@@ -10,14 +10,11 @@
 #include "vm/frame.h"
 #include "vm/page.h"
 
-
 static inline void *round_to_page (void *vaddr);
 static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                 void *aux UNUSED);
-
-
 
 static inline void *
 round_to_page (void *vaddr)
@@ -39,14 +36,12 @@ hash_lookup_spte (struct hash *spt, void *vaddr)
 void
 page_init (struct hash *spt)
 {
-  printf("%s\n", "about to init this hash");
   hash_init (spt, page_hash, page_less, NULL);
-  printf("%s\n", "inited hash");
 }
 
 bool 
 page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs, 
-               size_t read_bytes, size_t zero_bytes, bool writable)
+               size_t read_bytes, size_t zero_bytes, bool writable, bool lazy)
 {
   ASSERT ((int) vaddr % PGSIZE == 0);
 
@@ -59,9 +54,6 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
   spte->vaddr = vaddr;
   spte->frame = NULL;
 
-  // This could load the frame itself if we want
-  // spte->frame = lazy ? NULL : frame_get ();
-
   spte->file = f;
   spte->ofs = ofs;
   spte->read_bytes = read_bytes;
@@ -71,6 +63,9 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
   if (e != NULL)
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
            (uintptr_t) vaddr);
+
+  if (!lazy)
+    page_load (vaddr);
 
   return true;
 }
