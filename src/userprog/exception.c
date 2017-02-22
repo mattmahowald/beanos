@@ -6,6 +6,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "userprog/syscall.h"
+#include "vm/page.h"
 
 
 /* Number of page faults processed. */
@@ -152,6 +153,7 @@ page_fault (struct intr_frame *f)
   user = (f->error_code & PF_U) != 0;
 
   if (user && not_present && !page_load (fault_addr)) 
+    {
         // if write && should_grow_stack ()
         //   grow_stack ()
     }
