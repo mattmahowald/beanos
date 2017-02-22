@@ -2,6 +2,7 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
@@ -107,6 +108,9 @@ struct thread
     struct semaphore loaded;            /* Semaphore to signal when loaded. */
     struct semaphore ready_to_start;    /* Semaphore to signal when done. */
     bool load_success;                  /* Indicator of succesful load. */
+
+    /* Virtual memory */
+    struct hash spt;                    /* Supplementary page table. */
 
 #endif
 

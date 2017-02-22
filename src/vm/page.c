@@ -28,7 +28,6 @@ page_allocate (bool writable)
     spte->vaddr = NULL;
     hash_insert (&thread_current ()->spt, &spte->elem);
 
-    return spte->vaddr;
 }
 
 unsigned 
