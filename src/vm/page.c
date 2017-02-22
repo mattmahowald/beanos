@@ -1,5 +1,6 @@
 #include <debug.h>
 #include <round.h>
+#include <stdio.h>
 #include <string.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
@@ -8,6 +9,7 @@
 #include "userprog/pagedir.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+
 
 static inline void *round_to_page (void *vaddr);
 static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
@@ -37,7 +39,9 @@ hash_lookup_spte (struct hash *spt, void *vaddr)
 void
 page_init (struct hash *spt)
 {
+  printf("%s\n", "about to init this hash");
   hash_init (spt, page_hash, page_less, NULL);
+  printf("%s\n", "inited hash");
 }
 
 bool 
@@ -53,6 +57,8 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
   /* Set meta-data. */
   spte->location = loc;
   spte->vaddr = vaddr;
+  spte->frame = NULL;
+
   // This could load the frame itself if we want
   // spte->frame = lazy ? NULL : frame_get ();
 
@@ -61,8 +67,6 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
   spte->read_bytes = read_bytes;
   spte->zero_bytes = zero_bytes;
   spte->writable = writable;
-  spte->vaddr = NULL;
-
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
   if (e != NULL)
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
