@@ -107,7 +107,6 @@ start_process (void *cmdline_)
 
   struct intr_frame if_;
   bool success;
-
   page_init (&thread_current ()->spt);
 
   /* Initialize interrupt frame and load executable. */
@@ -117,7 +116,6 @@ start_process (void *cmdline_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   
   success = load (cmdline, &if_.eip, &if_.esp);
-
   /* If load failed, quit. */
   palloc_free_page (cmdline);
   if (!success)
@@ -130,6 +128,7 @@ start_process (void *cmdline_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+  // printf("were fucking jumpong in\n");
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -200,6 +199,9 @@ dispose_resources (struct thread *cur)
       intr_set_level (old_level);
       free (file);        
     }
+
+  /* Clean up resources associated with the supplemental page table. */
+  page_spt_cleanup (&cur->spt);  
 }
 
 /* Free the current process's resources. */
@@ -534,8 +536,6 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
-  printf ("Load segment\n");
-
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -568,8 +568,6 @@ static size_t
 push_args_to_stack (void **esp, char *cmdline, 
                     uintptr_t (*argv)[MAX_ARGS], size_t *bytes_used)
 {
-  printf ("Push args\n");
-
   char *token, *save_ptr;
   size_t argc = 0;
   for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL;
@@ -607,7 +605,6 @@ decrement_esp (void **esp)
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
-  printf ("Setup stack\n");
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 

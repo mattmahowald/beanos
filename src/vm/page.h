@@ -36,6 +36,8 @@ void page_init (struct hash *spt);
 bool page_add_spte (enum page_location, void *, struct file *, off_t, size_t, size_t, bool, bool);
 bool page_load (void *);
 void page_remove_spte (void *);
+void page_validate (struct hash *);
+void page_spt_cleanup (struct hash *); 
 
 
 

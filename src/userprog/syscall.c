@@ -371,9 +371,11 @@ sys_close (int fd)
 static void
 syscall_handler (struct intr_frame *f) 
 {
+  // printf("syscall received\n");
+
   int *esp = f->esp;
   validate_address (esp, sizeof (void *));
-
+  // printf("validated esp\n");
   switch (*esp)
     {
     case SYS_HALT:

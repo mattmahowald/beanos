@@ -7,6 +7,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 
@@ -15,6 +16,9 @@ static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                 void *aux UNUSED);
+void free_spte (struct hash_elem *e, void *aux UNUSED);
+ 
+
 
 static inline void *
 round_to_page (void *vaddr)
@@ -64,11 +68,10 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
            (uintptr_t) vaddr);
 
-  if (!lazy) {
+  if (!lazy)
     page_load (vaddr);
-    printf("Loaded stack at virtual address  %p\n", vaddr);
-    printf("Loaded frame at physical address %p\n", spte->frame);
-  }
+
+
 
   return true;
 }
@@ -95,7 +98,6 @@ page_remove_spte (void *vaddr)
 bool 
 page_load (void *vaddr)
 {
-  printf ("Loading page at virtual address   %p\n", vaddr);
   /* Lookup vaddr in supplementary page table. */
   vaddr = round_to_page (vaddr);
   struct hash *spt = &thread_current ()->spt;
@@ -103,7 +105,9 @@ page_load (void *vaddr)
 
   // if does not exist, we want to page fault, return false
   if (spte == NULL)
+  {
     return false;
+  }
 
   /* This page should not have a frame (due to eviction or laziness). */
   ASSERT (spte->frame == NULL)
@@ -111,16 +115,19 @@ page_load (void *vaddr)
   // NOTE: if swap is full, frame will panic
   /* Allocate a frame for the virtual page. */
   spte->frame = frame_get ();
-  printf ("Loading frame at physical address %p\n", spte->frame);
-
   switch (spte->location)
     {
     case DISK:
-      if (file_read (spte->file, spte->frame, spte->read_bytes) != (int) spte->read_bytes)
+      syscall_acquire_filesys_lock ();
+      file_seek (spte->file, spte->ofs);
+      int read = file_read (spte->file, spte->frame, spte->read_bytes);
+      syscall_release_filesys_lock ();
+      if (read != (int) spte->read_bytes)
         { 
           page_remove_spte (spte->vaddr);
           return false; 
         }
+
       memset ((uint8_t *) spte->frame + spte->read_bytes, 0, spte->zero_bytes);
       break;
     case SWAP:
@@ -151,4 +158,39 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct spte *b = hash_entry (b_, struct spte, elem);
 
   return a->vaddr < b->vaddr;
+}
+
+void
+free_spte (struct hash_elem *e, void *aux UNUSED)
+{
+  free (hash_entry (e, struct spte, elem));
+}
+
+void 
+page_spt_cleanup (struct hash *spt) 
+{
+  hash_destroy (spt, free_spte);
+}
+
+
+void
+page_validate (struct hash *spt)
+{
+  struct hash_iterator i;
+  int idx = 1;
+  hash_first (&i, spt);
+  while (hash_next (&i))
+    {
+      struct spte *spte = hash_entry (hash_cur (&i), struct spte, elem);
+      char *loc;
+      switch (spte->location) 
+        {
+        case (DISK) : loc = "DISK"; break;
+        case (SWAP) : loc = "SWAP"; break;
+        case (ZERO) : loc = "ZERO"; break;
+        default     : loc = "UNKN";
+        }
+      printf ("PAGE TABLE ENTRY %d in %s\nVirtual Address  %p\nPhysical Address %p\nis %swritable\n\n", 
+              idx++, loc, spte->vaddr, spte->frame, spte->writable ? "" : "not ");
+    }
 }
