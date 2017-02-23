@@ -11,14 +11,15 @@
 #include "vm/frame.h"
 #include "vm/page.h"
 
+#define PUSHA_OFFSET 32
+#define STACK_LIMIT PHYS_BASE - (256 * PGSIZE)
+
 static inline void *round_to_page (void *vaddr);
 static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                 void *aux UNUSED);
 void free_spte (struct hash_elem *e, void *aux UNUSED);
- 
-
 
 static inline void *
 round_to_page (void *vaddr)
@@ -71,9 +72,20 @@ page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs,
   if (!lazy)
     page_load (vaddr);
 
-
-
   return true;
+}
+
+bool
+page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
+{
+  if (fault_addr < (uint8_t *) STACK_LIMIT)
+    return false;
+  if (fault_addr + PUSHA_OFFSET >= esp)
+    {
+      page_add_spte (ZERO, round_to_page (fault_addr), NULL, 0, 0, 0, true, !LAZY);
+      return true;
+    }
+  return false;
 }
 
 void 

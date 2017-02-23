@@ -38,7 +38,7 @@ bool page_load (void *);
 void page_remove_spte (void *);
 void page_validate (struct hash *);
 void page_spt_cleanup (struct hash *); 
-
+bool page_extend_stack (uint8_t *, uint8_t *);
 
 
 #endif /* vm/page.h */
