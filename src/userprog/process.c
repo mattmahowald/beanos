@@ -201,6 +201,15 @@ dispose_resources (struct thread *cur)
       free (file);        
     }
 
+  /* Unmap any still mmapped files. */
+  struct list *mfiles = &cur->mmapped_files;
+  while (!list_empty (mfiles))
+    {
+      struct list_elem *mfile_e = list_pop_front (mfiles);
+      struct mmapped_file *mfile = list_entry (mfile_e, struct mmapped_file, elem);
+      syscall_unmap (mfile);
+    }
+
   /* Clean up resources associated with the supplemental page table. */
   page_spt_cleanup (&cur->spt);  
 }

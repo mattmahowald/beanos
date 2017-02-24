@@ -433,12 +433,23 @@ sys_mmap (int fd, void *addr)
   return mf->id;
 }
 
-static void
-unmap (struct mmapped_file *mf)
+void
+syscall_unmap (struct mmapped_file *mf)
 {
   uint8_t *next_page = mf->start_vaddr;
   while (next_page < (uint8_t *) mf->end_vaddr)
     {
+      struct spte *page = page_get_spte (next_page);
+      if (page->loaded)
+        {
+          if (pagedir_is_dirty (thread_current ()->pagedir, next_page))
+            {
+              syscall_acquire_filesys_lock ();
+              file_seek (page->file_data.file, page->file_data.ofs);
+              file_write (page->file_data.file, next_page, page->file_data.read);
+              syscall_release_filesys_lock ();
+            }
+        }
       page_remove_spte (next_page);
       next_page += PGSIZE;
     }
@@ -456,11 +467,13 @@ sys_munmap (mapid_t mapping)
                                                elem);
       if (mf->id == mapping)
         {
-          unmap (mf);
+          syscall_unmap (mf);
           syscall_acquire_filesys_lock ();
           file_close (mf->file);
           syscall_release_filesys_lock ();
+          list_remove (mfile_e);
           free (mf);
+
           return;
         }
     } 
