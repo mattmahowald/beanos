@@ -29,24 +29,28 @@ struct spte_file
 
 struct spte 
 {
-  struct hash_elem elem;
+  struct hash_elem elem;        /* Hash element for the spt. */
 
-  enum page_location location;
-  void *vaddr;
-  void *frame;
+  enum page_location location;  /* Location of the data. */
+  void *vaddr;                  /* User virtual address. */
+  void *frame;                  /* Kernel virtual address. */
 
-  struct spte_file file_data;
+  struct spte_file file_data;   /* File information. */
 
-  bool writable;
+  bool writable;                /* */
 };
 
-void page_init (struct hash *spt);
 void page_add_spte (enum page_location, void *, struct spte_file, bool, bool);
-bool page_load (void *);
 void page_remove_spte (void *);
-void page_validate (struct hash *);
+bool page_contains_spte (void *);
+bool page_load (void *);
+
+// TODO these names are a little inconsistent
+void page_init (struct hash *spt);
 void page_spt_cleanup (struct hash *); 
 bool page_extend_stack (uint8_t *, uint8_t *);
 
+// TODO Remove
+void page_validate (struct hash *);
 
 #endif /* vm/page.h */

@@ -76,6 +76,12 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
     page_load (vaddr);
 }
 
+bool page_contains_spte (void *vaddr)
+{
+  return hash_lookup_spte (&thread_current ()->spt, round_to_page (vaddr)) != NULL;
+}
+
+
 /* Allocates a new page if and only if the fault address is within 
    PUSHA_OFFSET bytes of the esp and above the limit. */
 bool
@@ -170,6 +176,13 @@ page_load (void *vaddr)
   return true;
 }
 
+/* Cleanup the supplementary page table. */
+void 
+page_spt_cleanup (struct hash *spt) 
+{
+  hash_destroy (spt, free_spte);
+}
+
 /* Hash function for spte. */
 unsigned 
 page_hash (const struct hash_elem *p_, void *aux UNUSED)
@@ -178,6 +191,7 @@ page_hash (const struct hash_elem *p_, void *aux UNUSED)
   return hash_bytes (&p->vaddr, sizeof p->vaddr);
 }
 
+/* Comparator function for spte. */
 bool 
 page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
            void *aux UNUSED)
@@ -188,19 +202,14 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
   return a->vaddr < b->vaddr;
 }
 
+/* Destructor for spte. */
 void
 free_spte (struct hash_elem *e, void *aux UNUSED)
 {
   free (hash_entry (e, struct spte, elem));
 }
 
-void 
-page_spt_cleanup (struct hash *spt) 
-{
-  hash_destroy (spt, free_spte);
-}
-
-
+// TODO remove
 void
 page_validate (struct hash *spt)
 {
