@@ -13,6 +13,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include <string.h>
+#include "vm/page.h"
 
 
 static void syscall_handler (struct intr_frame *);
@@ -31,12 +32,16 @@ static void sys_seek (int fd, unsigned position);
 static unsigned sys_tell (int fd);
 static void sys_close (int fd);
 static tid_t sys_wait (tid_t tid);
+static mapid_t sys_mmap (int fd, void *addr);
+static void sys_munmap (mapid_t mapping);
 static struct fd_to_file *get_file_struct_from_fd (int fd);
 static int allocate_fd (void);
+static int allocate_mapid (void);
 
 
 static struct lock filesys_lock; 
 static struct lock fd_lock;
+static struct lock mapid_lock;
 
 
 void 
@@ -45,6 +50,7 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init (&filesys_lock);
   lock_init (&fd_lock);
+  lock_init (&mapid_lock);
 }
 
 /* Truncates address to the nearest multiple of PGSIZE. */
@@ -230,7 +236,7 @@ sys_filesize (int fd)
 {
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
-    sys_exit (-1);
+    return -1;
 
   return file_length (f);
 }
@@ -361,6 +367,64 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
+static mapid_t 
+sys_mmap (int fd, void *addr)
+{
+  // TODO maybe decompose this a little bit
+  // TODO maybe turn file retreival into its own helper fn
+  size_t file_len, bytes_mapped, bytes_to_map, file_bytes, zero_bytes;
+
+  struct fd_to_file *f = get_file_struct_from_fd (fd);
+  file_len = sys_filesize (fd);
+  
+  if (f == NULL || file_len <= 0 || (uintptr_t) addr % PGSIZE != 0 || !addr ||
+      fd == STDIN_FILENO || fd == STDOUT_FILENO)
+    return MAP_FAILED;
+
+  syscall_acquire_filesys_lock ();
+  struct file *file_to_map = file_reopen (f->f);
+  syscall_release_filesys_lock ();
+
+  void *next_page = addr;
+  bytes_mapped = 0;
+  bytes_to_map = file_len;
+  while (bytes_mapped < file_len)
+    {
+      file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
+      zero_bytes = PGSIZE - file_bytes;
+      /* Make sure file will not overwrite existing segments. */
+      if (page_contains_spte (next_page))
+        {
+          // maybe instead return map_failed .. but then free what you already did? fuck
+          sys_exit (-1);
+        }
+
+      struct spte_file file_data;
+      file_data.file = file_to_map;
+      file_data.ofs = (off_t) bytes_mapped; 
+      file_data.read = file_bytes;
+      file_data.zero = zero_bytes;
+      page_add_spte (DISK, next_page, file_data, WRITABLE, LAZY);
+
+      bytes_mapped += PGSIZE;
+      bytes_to_map -= PGSIZE;
+      next_page += PGSIZE;
+    }
+
+  mapid_t mapid = allocate_mapid ();
+
+  // list_push_back (&thread_current ()->mmapped_files, )
+
+  return mapid;
+}
+
+
+static void 
+sys_munmap (mapid_t mapping UNUSED)
+{
+  return;
+}
+
 #define ONE_ARG 1
 #define TWO_ARG 2
 #define THREE_ARG 3
@@ -428,8 +492,16 @@ syscall_handler (struct intr_frame *f)
       f->eax = sys_tell (esp[ONE_ARG]);
       break;
     case SYS_CLOSE:
-      validate_address (esp, 2 * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
       sys_close (esp[ONE_ARG]);
+      break;
+    case SYS_MMAP:
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
+      break;
+    case SYS_MUNMAP:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      sys_munmap (esp[ONE_ARG]);
       break;
     default:
       sys_exit (-1);
@@ -449,6 +521,18 @@ allocate_fd (void)
   return fd;
 }
 
+static mapid_t
+allocate_mapid (void)
+{
+  static int next_mapid = 0;
+  int mapid;
+
+  lock_acquire (&mapid_lock);
+  mapid = next_mapid++;
+  lock_release (&mapid_lock);
+
+  return mapid;
+}
 /* Given an fd, finds the file pointer through the current process's open
    file list. */
 static struct fd_to_file *

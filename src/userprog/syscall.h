@@ -8,6 +8,11 @@ struct fd_to_file
     struct list_elem elem;
   };
 
+/* Map region identifier. */
+typedef int mapid_t;
+#define MAP_FAILED ((mapid_t) -1)
+
+
 void syscall_init (void);
 void sys_exit (int status);
 void syscall_acquire_filesys_lock (void);
