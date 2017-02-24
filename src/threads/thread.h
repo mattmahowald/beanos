@@ -109,10 +109,11 @@ struct thread
     struct semaphore ready_to_start;    /* Semaphore to signal when done. */
     bool load_success;                  /* Indicator of succesful load. */
 
+#endif
+
     /* Virtual memory */
     struct hash spt;                    /* Supplementary page table. */
-
-#endif
+    struct list mmapped_files;          /* List of memory mapped files. */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

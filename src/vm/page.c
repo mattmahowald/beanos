@@ -83,7 +83,6 @@ bool page_contains_spte (void *vaddr)
   return hash_lookup_spte (&thread_current ()->spt, page_base) != NULL;
 }
 
-
 /* Allocates a new page if and only if the fault address is within 
    PUSHA_OFFSET bytes of the esp and above the limit. */
 bool

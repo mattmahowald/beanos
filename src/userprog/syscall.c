@@ -38,11 +38,9 @@ static struct fd_to_file *get_file_struct_from_fd (int fd);
 static int allocate_fd (void);
 static int allocate_mapid (void);
 
-
 static struct lock filesys_lock; 
 static struct lock fd_lock;
 static struct lock mapid_lock;
-
 
 void 
 syscall_init (void) 
@@ -385,7 +383,7 @@ sys_mmap (int fd, void *addr)
   struct file *file_to_map = file_reopen (f->f);
   syscall_release_filesys_lock ();
 
-  void *next_page = addr;
+  uint8_t *next_page = addr;
   bytes_mapped = 0;
   bytes_to_map = file_len;
   while (bytes_mapped < file_len)
@@ -406,23 +404,52 @@ sys_mmap (int fd, void *addr)
       file_data.zero = zero_bytes;
       page_add_spte (DISK, next_page, file_data, WRITABLE, LAZY);
 
+
       bytes_mapped += PGSIZE;
       bytes_to_map -= PGSIZE;
       next_page += PGSIZE;
     }
 
-  mapid_t mapid = allocate_mapid ();
+  struct mmapped_file *mf = malloc (sizeof *mf);
+  if (mf == NULL)
+    PANIC ("Unable to malloc mmapped file struct");
 
-  // list_push_back (&thread_current ()->mmapped_files, )
+  mf->id = allocate_mapid ();
+  mf->start_vaddr = addr;
+  mf->end_vaddr = (uint8_t *) addr + file_len;
+  mf->file = file_to_map;
+  list_push_back (&thread_current ()->mmapped_files, &mf->elem);
 
-  return mapid;
+  return mf->id;
 }
 
+static void
+unmap (struct mmapped_file *mf)
+{
+  uint8_t *next_page = mf->start_vaddr;
+  while (next_page < (uint8_t *) mf->end_vaddr)
+    {
+      page_remove_spte (next_page);
+      next_page += PGSIZE;
+    }
+}
 
 static void 
-sys_munmap (mapid_t mapping UNUSED)
+sys_munmap (mapid_t mapping)
 {
-  return;
+  struct list_elem *mfile_e;
+  struct list *mfiles = &thread_current ()->mmapped_files;
+  for (mfile_e = list_begin (mfiles); mfile_e != list_end (mfiles); 
+       mfile_e = list_next (mfile_e))
+    {
+      struct mmapped_file *mf = list_entry (mfile_e, struct mmapped_file, 
+                                               elem);
+      if (mf->id == mapping)
+        {
+          unmap (mf);
+          free (mf);
+        }
+    } 
 }
 
 #define ONE_ARG 1

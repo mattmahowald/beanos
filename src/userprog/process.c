@@ -108,6 +108,7 @@ start_process (void *cmdline_)
   struct intr_frame if_;
   bool success;
   page_init (&thread_current ()->spt);
+  list_init (&thread_current ()->mmapped_files);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
