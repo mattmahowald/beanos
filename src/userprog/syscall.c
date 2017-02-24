@@ -104,6 +104,9 @@ validate_address (void *address, size_t size)
       struct spte *page = page_get_spte (cur_addr);
       if (!page)
         sys_exit (-1);
+      // TODO this scares me 
+      // if (!page->writable)
+      //   sys_exit (-1);
 
       if (!page->loaded)
         page_load (cur_addr);
@@ -240,11 +243,11 @@ sys_open (const char *file)
 static int
 sys_filesize (int fd)
 {
-  struct file *f = get_file_struct_from_fd (fd)->f;
+  struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
     return -1;
 
-  return file_length (f);
+  return file_length (f->f);
 }
 
 /* System call read(fd, buffer, size) reads from the file corresponding
@@ -386,7 +389,7 @@ sys_mmap (int fd, void *addr)
   
   if (!f || file_len <= 0 || (uintptr_t) addr % PGSIZE != 0 || !addr ||
       fd == STDIN_FILENO || fd == STDOUT_FILENO)
-    return MAP_FAILED;
+      return MAP_FAILED;
 
   syscall_acquire_filesys_lock ();
   struct file *file_to_map = file_reopen (f->f);
@@ -403,7 +406,7 @@ sys_mmap (int fd, void *addr)
       if (page_get_spte (next_page))
         {
           // maybe instead return map_failed .. but then free what you already did? fuck
-          sys_exit (-1);
+          return MAP_FAILED;
         }
 
       struct spte_file file_data;
