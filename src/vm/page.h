@@ -8,32 +8,40 @@
 #include "filesys/file.h"
 
 #define LAZY true
+#define WRITABLE true
 
 /* States the pages location. */
 enum page_location
-  {
-    DISK,    	 /* . */
-    SWAP,        /* . */
-    ZERO         /* . */
-  };
+{
+  DISK,        /* . */
+  SWAP,        /* . */
+  ZERO         /* . */
+};
 
-struct spte {
-    struct hash_elem elem;
 
-    enum page_location location;
-    void *vaddr;
-    void *frame;
+struct spte_file
+{
+  struct file *file;
+  off_t ofs;
+  size_t read;
+  size_t zero;
+};
 
-    struct file *file;
-	off_t ofs;
-    size_t read_bytes;
-    size_t zero_bytes;
+struct spte 
+{
+  struct hash_elem elem;
 
-    bool writable;
+  enum page_location location;
+  void *vaddr;
+  void *frame;
+
+  struct spte_file file_data;
+
+  bool writable;
 };
 
 void page_init (struct hash *spt);
-bool page_add_spte (enum page_location, void *, struct file *, off_t, size_t, size_t, bool, bool);
+void page_add_spte (enum page_location, void *, struct spte_file, bool, bool);
 bool page_load (void *);
 void page_remove_spte (void *);
 void page_validate (struct hash *);

@@ -21,13 +21,15 @@ bool page_less (const struct hash_elem *a_, const struct hash_elem *b_,
                 void *aux UNUSED);
 void free_spte (struct hash_elem *e, void *aux UNUSED);
 
+/* Rounds a virtual address down to its page base. */
 static inline void *
 round_to_page (void *vaddr)
 {
   return (void *) ROUND_DOWN ((uintptr_t) vaddr, PGSIZE);
-
 }
 
+/* Finds a virtual address in the supplementary page table hash.
+   Input virtual address must be rounded to page. */
 static struct spte *
 hash_lookup_spte (struct hash *spt, void *vaddr)
 {
@@ -38,56 +40,63 @@ hash_lookup_spte (struct hash *spt, void *vaddr)
   return elem == NULL ? NULL : hash_entry (elem, struct spte, elem);
 }
 
+/* Initializes supplementary page table hash. */
 void
 page_init (struct hash *spt)
 {
   hash_init (spt, page_hash, page_less, NULL);
 }
 
-bool 
-page_add_spte (enum page_location loc, void *vaddr, struct file *f, off_t ofs, 
-               size_t read_bytes, size_t zero_bytes, bool writable, bool lazy)
+/* Adds an entry to the current thread's supplementary page table. */
+void 
+page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data, 
+               bool writable, bool lazy)
 {
   ASSERT ((int) vaddr % PGSIZE == 0);
 
+  /* Allocate and set meta-data for spt entry. */
   struct spte *spte = malloc (sizeof *spte);
   if (spte == NULL)
-    PANIC ("Malloc failed in allocating a virtual page");
+    PANIC ("Malloc failed in allocating a supplementary page table entry");
 
-  /* Set meta-data. */
   spte->location = loc;
   spte->vaddr = vaddr;
   spte->frame = NULL;
-
-  spte->file = f;
-  spte->ofs = ofs;
-  spte->read_bytes = read_bytes;
-  spte->zero_bytes = zero_bytes;
   spte->writable = writable;
+  spte->file_data = file_data;
+
+  /* Insert the spte into the spt, panicking on fail. */
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
   if (e != NULL)
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
            (uintptr_t) vaddr);
 
+  /* If the page must not be loaded lazily, load a frame into the page. */
   if (!lazy)
     page_load (vaddr);
-
-  return true;
 }
 
+/* Allocates a new page if and only if the fault address is within 
+   PUSHA_OFFSET bytes of the esp and above the limit. */
 bool
 page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
 {
+  /* Impose a limit on the total stack size, failing to grow if exceeding. */
   if (fault_addr < (uint8_t *) STACK_LIMIT)
     return false;
-  if (fault_addr + PUSHA_OFFSET >= esp)
-    {
-      page_add_spte (ZERO, round_to_page (fault_addr), NULL, 0, 0, 0, true, !LAZY);
-      return true;
-    }
-  return false;
+
+  /* Validate the write call is within PUSHA_OFFSET of the esp. */
+  if (fault_addr + PUSHA_OFFSET < esp)
+    return false;
+
+  /* Allocate a new stack page. */
+  struct spte_file no_file = {NULL, 0, 0, 0};
+  page_add_spte (ZERO, round_to_page (fault_addr), no_file, WRITABLE, !LAZY);
+  return true;
 }
 
+/* Remove the entry, freeing the frame if it exists, the hash entry, and the
+   memory associated with the spte itself. */
 void 
 page_remove_spte (void *vaddr)
 {
@@ -107,6 +116,7 @@ page_remove_spte (void *vaddr)
   free (found);
 }
 
+/* Loads a frame into the virtual address VADDR, */
 bool 
 page_load (void *vaddr)
 {
@@ -115,32 +125,36 @@ page_load (void *vaddr)
   struct hash *spt = &thread_current ()->spt;
   struct spte *spte = hash_lookup_spte (spt, vaddr);
 
-  // if does not exist, we want to page fault, return false
+  /* if the hash does not contain the entry, the memory access is invalid. */
   if (spte == NULL)
-  {
     return false;
-  }
 
-  /* This page should not have a frame (due to eviction or laziness). */
   ASSERT (spte->frame == NULL)
 
   // NOTE: if swap is full, frame will panic
   /* Allocate a frame for the virtual page. */
   spte->frame = frame_get ();
+
+  /* Determine where the entry and retrieve. */
   switch (spte->location)
     {
     case DISK:
+      /* Read the file from the filesystem from the appropriate offset. */
       syscall_acquire_filesys_lock ();
-      file_seek (spte->file, spte->ofs);
-      int read = file_read (spte->file, spte->frame, spte->read_bytes);
+      file_seek (spte->file_data.file, spte->file_data.ofs);
+      int read = file_read (spte->file_data.file, spte->frame, 
+                            spte->file_data.read);
       syscall_release_filesys_lock ();
-      if (read != (int) spte->read_bytes)
+
+      if (read != (int) spte->file_data.read)
         { 
           page_remove_spte (spte->vaddr);
           return false; 
         }
 
-      memset ((uint8_t *) spte->frame + spte->read_bytes, 0, spte->zero_bytes);
+      /* Zero the remainder of the frame space for security. */
+      memset ((uint8_t *) spte->frame + spte->file_data.read, 0, 
+              spte->file_data.zero);
       break;
     case SWAP:
       PANIC ("Swap not implemented in page_load");
@@ -150,16 +164,18 @@ page_load (void *vaddr)
       memset (spte->frame, 0, PGSIZE);
       break;
     }
+  /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame, 
                     spte->writable);
   return true;
 }
 
+/* Hash function for spte. */
 unsigned 
 page_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
-    const struct spte *p = hash_entry (p_, struct spte, elem);
-    return hash_bytes (&p->vaddr, sizeof p->vaddr);
+  const struct spte *p = hash_entry (p_, struct spte, elem);
+  return hash_bytes (&p->vaddr, sizeof p->vaddr);
 }
 
 bool 

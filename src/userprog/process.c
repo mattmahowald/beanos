@@ -550,8 +550,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Map this page into the supplemental page table. */
-      if (!page_add_spte (DISK, upage, file, ofs, page_read_bytes, page_zero_bytes, writable, LAZY))
-        return false;
+      struct spte_file f = {file, ofs, page_read_bytes, page_zero_bytes};
+      page_add_spte (DISK, upage, f, writable, LAZY);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -608,8 +608,9 @@ setup_stack (void **esp, char *cmdline)
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 
-  if (!page_add_spte (ZERO, ((uint8_t *) PHYS_BASE) - PGSIZE, NULL, 0, 0, 0, true, !LAZY))
-    return false;
+  uint8_t *stack_base = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  struct spte_file no_file = {NULL, 0, 0, 0};
+  page_add_spte (ZERO, stack_base, no_file, WRITABLE, !LAZY);
 
   *esp = PHYS_BASE;
 
