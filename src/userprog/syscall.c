@@ -404,7 +404,6 @@ sys_mmap (int fd, void *addr)
       file_data.zero = zero_bytes;
       page_add_spte (DISK, next_page, file_data, WRITABLE, LAZY);
 
-
       bytes_mapped += PGSIZE;
       bytes_to_map -= PGSIZE;
       next_page += PGSIZE;
@@ -447,6 +446,9 @@ sys_munmap (mapid_t mapping)
       if (mf->id == mapping)
         {
           unmap (mf);
+          syscall_acquire_filesys_lock ();
+          file_close (mf->file);
+          syscall_release_filesys_lock ();
           free (mf);
         }
     } 
