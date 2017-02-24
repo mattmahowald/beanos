@@ -19,7 +19,7 @@
 static void syscall_handler (struct intr_frame *);
 static char *truncate_to_page (char *addr);
 static void validate_string (const char *string);
-static void validate_address (void * address, size_t size);
+static void validate_address (void * address, size_t size, bool writable);
 static void sys_halt (void);
 static tid_t sys_exec (const char *cmd_line);
 static bool sys_create (const char *file, unsigned initial_size);
@@ -86,7 +86,7 @@ validate_string (const char *string)
 /* Helper function that validates the passed pointer as a legal, user
    virtual space address. */
 static void
-validate_address (void *address, size_t size)
+validate_address (void *address, size_t size, bool writable)
 {
   char *start = address;
   char *end = start + size - 1;
@@ -103,10 +103,9 @@ validate_address (void *address, size_t size)
     {
       struct spte *page = page_get_spte (cur_addr);
       if (!page)
+        sys_exit (-1); 
+      if (writable && !page->writable)
         sys_exit (-1);
-      // TODO this scares me 
-      // if (!page->writable)
-      //   sys_exit (-1);
 
       if (!page->loaded)
         page_load (cur_addr);
@@ -259,7 +258,7 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, unsigned size)
 { 
-  validate_address (buffer, size);
+  validate_address (buffer, size, WRITABLE);
 
   int read = -1;
 
@@ -302,7 +301,7 @@ sys_read (int fd, void *buffer, unsigned size)
 static int
 sys_write (int fd, void *buffer, unsigned size)
 {
-  validate_address (buffer, size);
+  validate_address (buffer, size, !WRITABLE);
 
   int written = 0;
   
@@ -480,7 +479,7 @@ syscall_handler (struct intr_frame *f)
   // printf("syscall received\n");
 
   int *esp = f->esp;
-  validate_address (esp, sizeof (void *));
+  validate_address (esp, sizeof (void *), WRITABLE);
   // printf("validated esp\n");
   switch (*esp)
     {
@@ -488,61 +487,61 @@ syscall_handler (struct intr_frame *f)
       sys_halt ();
       break;
     case SYS_EXIT:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_exit (esp[ONE_ARG]);
       break;
     case SYS_EXEC:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_exec (((char **)esp)[ONE_ARG]);
       break;
     case SYS_WAIT:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_wait (((tid_t *)esp)[ONE_ARG]);
       break;
     case SYS_CREATE:
-      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_create (((char **)esp)[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_REMOVE:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_remove (((char **)esp)[ONE_ARG]);
       break;
     case SYS_OPEN:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_open (((char **)esp)[ONE_ARG]);
       break;
     case SYS_FILESIZE:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_filesize (esp[ONE_ARG]);
       break;
     case SYS_READ:
-      validate_address (esp, (THREE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_read (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                          esp[THREE_ARG]);
       break;
     case SYS_WRITE:
-      validate_address (esp, (THREE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_write (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                           esp[THREE_ARG]);
       break;
     case SYS_SEEK:
-      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       sys_seek (esp[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_TELL:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_tell (esp[ONE_ARG]);
       break;
     case SYS_CLOSE:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_close (esp[ONE_ARG]);
       break;
     case SYS_MMAP:
-      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
       break;
     case SYS_MUNMAP:
-      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_munmap (esp[ONE_ARG]);
       break;
     default:
