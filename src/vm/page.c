@@ -14,7 +14,7 @@
 #define PUSHA_OFFSET 32
 #define STACK_LIMIT PHYS_BASE - (256 * PGSIZE)
 
-static inline void *round_to_page (void *vaddr);
+inline void *round_to_page (void *vaddr);
 static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
@@ -22,7 +22,7 @@ bool page_less (const struct hash_elem *a_, const struct hash_elem *b_,
 void free_spte (struct hash_elem *e, void *aux UNUSED);
 
 /* Rounds a virtual address down to its page base. */
-static inline void *
+inline void *
 round_to_page (void *vaddr)
 {
   return (void *) ROUND_DOWN ((uintptr_t) vaddr, PGSIZE);
@@ -64,7 +64,7 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   spte->frame = NULL;
   spte->writable = writable;
   spte->file_data = file_data;
-
+  spte->loaded = false;
   /* Insert the spte into the spt, panicking on fail. */
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
   if (e != NULL)
@@ -76,11 +76,12 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
     page_load (vaddr);
 }
 
-/* Validates that a spte exists in the spt. */
-bool page_contains_spte (void *vaddr)
+/* Find the spte that corresponds to addr. */
+struct spte * 
+page_get_spte (void *vaddr)
 {
   void *page_base = round_to_page (vaddr);
-  return hash_lookup_spte (&thread_current ()->spt, page_base) != NULL;
+  return hash_lookup_spte (&thread_current ()->spt, page_base);
 }
 
 /* Allocates a new page if and only if the fault address is within 
@@ -174,6 +175,7 @@ page_load (void *vaddr)
   /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame, 
                     spte->writable);
+  spte->loaded = true;
   return true;
 }
 

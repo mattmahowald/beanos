@@ -92,13 +92,16 @@ validate_address (void *address, size_t size)
   if (is_kernel_vaddr (start) || is_kernel_vaddr (end))
     sys_exit (-1);
 
-  unsigned *page_dir = thread_current ()-> pagedir;
   char *cur_addr = truncate_to_page (start);
 
   while (cur_addr <= end) 
     {
-      if (!pagedir_get_page (page_dir, cur_addr))
+      struct spte *page = page_get_spte (cur_addr);
+      if (!page)
         sys_exit (-1);
+
+      if (!page->loaded)
+        page_load (cur_addr);
 
       cur_addr += PGSIZE;
     }
@@ -268,6 +271,7 @@ sys_read (int fd, void *buffer, unsigned size)
 
   /* Otherwise, find the file and read from it. */
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+
   if (!fd_)
     sys_exit (-1); 
   struct file *f = fd_->f;
@@ -375,7 +379,7 @@ sys_mmap (int fd, void *addr)
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   file_len = sys_filesize (fd);
   
-  if (f == NULL || file_len <= 0 || (uintptr_t) addr % PGSIZE != 0 || !addr ||
+  if (!f || file_len <= 0 || (uintptr_t) addr % PGSIZE != 0 || !addr ||
       fd == STDIN_FILENO || fd == STDOUT_FILENO)
     return MAP_FAILED;
 
@@ -391,7 +395,7 @@ sys_mmap (int fd, void *addr)
       file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
       zero_bytes = PGSIZE - file_bytes;
       /* Make sure file will not overwrite existing segments. */
-      if (page_contains_spte (next_page))
+      if (page_get_spte (next_page))
         {
           // maybe instead return map_failed .. but then free what you already did? fuck
           sys_exit (-1);
@@ -526,7 +530,7 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_MMAP:
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
-      sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
+      f->eax = sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
       break;
     case SYS_MUNMAP:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));

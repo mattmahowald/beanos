@@ -49,11 +49,14 @@ struct spte
   void *frame;                  /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
+  bool loaded;
 };
 
+
+inline void *round_to_page (void *vaddr);
 void page_add_spte (enum page_location, void *, struct spte_file, bool, bool);
 void page_remove_spte (void *);
-bool page_contains_spte (void *);
+struct spte * page_get_spte (void *);
 bool page_load (void *);
 
 // TODO these names are a little inconsistent
