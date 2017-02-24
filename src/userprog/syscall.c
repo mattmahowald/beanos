@@ -64,13 +64,18 @@ static void
 validate_string (const char *string)
 {
   unsigned cur_addr = (unsigned) string;
-  unsigned *page_dir = thread_current ()-> pagedir;
   for (;;)
     {
       if (is_kernel_vaddr ((char *) cur_addr))
         sys_exit (-1);
-      if (!pagedir_get_page (page_dir, (char *) cur_addr))
+      
+      struct spte *page = page_get_spte ((void *)cur_addr);
+      if (!page)
         sys_exit (-1);
+
+      if (!page->loaded)
+        page_load ((void *)cur_addr);
+
       while (cur_addr++ % PGSIZE != 0)
         if (*(char *) cur_addr == '\0')
           return;
@@ -454,6 +459,7 @@ sys_munmap (mapid_t mapping)
           file_close (mf->file);
           syscall_release_filesys_lock ();
           free (mf);
+          return;
         }
     } 
 }
