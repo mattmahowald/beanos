@@ -76,9 +76,11 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
     page_load (vaddr);
 }
 
+/* Validates that a spte exists in the spt. */
 bool page_contains_spte (void *vaddr)
 {
-  return hash_lookup_spte (&thread_current ()->spt, round_to_page (vaddr)) != NULL;
+  void *page_base = round_to_page (vaddr);
+  return hash_lookup_spte (&thread_current ()->spt, page_base) != NULL;
 }
 
 
