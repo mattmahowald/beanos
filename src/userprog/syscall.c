@@ -88,8 +88,8 @@ validate_string (const char *string)
 static void
 validate_address (void *address, size_t size, bool writable)
 {
-  char *start = address;
-  char *end = start + size - 1;
+  uint8_t *start = address;
+  uint8_t *end = start + size - 1;
   
   if (!start)
     sys_exit (-1);
@@ -97,19 +97,24 @@ validate_address (void *address, size_t size, bool writable)
   if (is_kernel_vaddr (start) || is_kernel_vaddr (end))
     sys_exit (-1);
 
-  char *cur_addr = truncate_to_page (start);
+  uint8_t *cur_addr = round_to_page (start);
 
   while (cur_addr <= end) 
     {
       struct spte *page = page_get_spte (cur_addr);
       if (!page)
-        sys_exit (-1); 
-      if (writable && !page->writable)
-        sys_exit (-1);
+        {
+          if (!(writable && page_extend_stack (cur_addr, thread_current ()->esp)))
+            sys_exit (-1); 
+        }
+      else 
+        {
+          if (writable && !page->writable)
+            sys_exit (-1);
 
-      if (!page->loaded)
-        page_load (cur_addr);
-
+          if (!page->loaded)
+            page_load (cur_addr);
+        }
       cur_addr += PGSIZE;
     }
 }
@@ -493,6 +498,7 @@ syscall_handler (struct intr_frame *f)
 
   int *esp = f->esp;
   validate_address (esp, sizeof (void *), WRITABLE);
+  thread_current ()->esp = esp;
   // printf("validated esp\n");
   switch (*esp)
     {
