@@ -17,7 +17,7 @@
 
 
 static void syscall_handler (struct intr_frame *);
-static char *truncate_to_page (char *addr);
+// static char *truncate_to_page (char *addr);
 static void validate_string (const char *string);
 static void validate_address (void * address, size_t size, bool writable);
 static void sys_halt (void);
@@ -52,11 +52,11 @@ syscall_init (void)
 }
 
 /* Truncates address to the nearest multiple of PGSIZE. */
-static char *
-truncate_to_page (char *addr)
-{
-  return (char *)((unsigned) addr & -1*PGSIZE);
-}
+// static char *
+// truncate_to_page (char *addr)
+// {
+//   return (char *)((unsigned) addr & -1*PGSIZE);
+// }
 
 /* Helper function that validates the entirety of a string is mapped 
    user virtual address space. */

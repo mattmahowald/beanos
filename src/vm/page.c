@@ -10,6 +10,7 @@
 #include "userprog/syscall.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 
 #define PUSHA_OFFSET 32
 #define STACK_LIMIT PHYS_BASE - (256 * PGSIZE)
@@ -169,7 +170,7 @@ page_load (void *vaddr)
               spte->file_data.zero);
       break;
     case SWAP:
-      PANIC ("Swap not implemented in page_load");
+      swap_read_page (spte->frame->paddr, spte->swapid);
       break;
     case ZERO:
       // TODO needs to be done in the background
@@ -179,8 +180,41 @@ page_load (void *vaddr)
   /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
+  pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
   spte->loaded = true;
   return true;
+}
+
+void
+page_unload (struct spte *spte)
+{
+  switch (spte->location)
+    {
+    case DISK:
+      if (pagedir_is_dirty (spte->owner->pagedir, spte->vaddr))
+        {
+          syscall_acquire_filesys_lock ();
+          file_seek (spte->file_data.file, spte->file_data.ofs);
+          int write = file_write (spte->file_data.file, spte->frame->paddr, spte->file_data.read);
+          syscall_release_filesys_lock ();
+
+          if (write != (int) spte->file_data.read)
+          {
+            // TODO I'm not really sure what to do here.
+            PANIC ("Could not write back to disk.");
+          }
+        }
+      break;
+    case SWAP:
+      spte->swapid = swap_write_page (spte->frame->paddr);
+      break;
+    case ZERO:
+      spte->swapid = swap_write_page (spte->frame->paddr);
+      spte->location = SWAP;
+      break;
+    }
+
+  pagedir_clear_page (spte->owner->pagedir, spte->vaddr);
 }
 
 /* Cleanup the supplementary page table. */

@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <list.h>
 #include "threads/malloc.h"
+#include "userprog/pagedir.h"
+#include "threads/thread.h"
+#include "vm/page.h"
 
 #define HAND_DISTANCE 16
 
@@ -12,6 +15,8 @@ static struct lock free_lock;
 static struct lock used_lock;
 static struct list frame_free_list;
 static struct list frame_used_list;
+
+static struct frame * evict (void);
 
 void 
 frame_init ()
@@ -27,32 +32,58 @@ frame_init ()
 			if (!addr)
 				break;
 			struct frame *f = malloc (sizeof *f);
-			f->paddr = addr;
+			f->paddr = addr;	
 			f->spte = NULL;
+			f->pinned = false;
 			list_push_back (&frame_free_list, &f->elem);
 		}
 }
 
-// static void
-// evict (void *frame)
-// {
-//   // if (pagedir_is_dirty (frame))
-//   //   // write to disk
-//   // return frame;
-// }
+static struct frame *
+evict ()
+{
+	struct list_elem *e;
+	lock_acquire (&used_lock);
+  for (e = list_begin (&frame_used_list); e != list_end (&frame_used_list);
+       e = list_next (e))
+    {
+      struct frame *f = list_entry (e, struct frame, elem);
+      // TODO maybe change owner field directly to pagedir, skip one level of indirection
+      if (pagedir_is_accessed (f->spte->owner->pagedir, f->spte->vaddr))
+      	{
+      		pagedir_set_accessed (f->spte->owner->pagedir, f->spte->vaddr, false);
+      		continue;
+      	}
+      // if not pinned 
+      page_unload (f->spte);
+			list_remove (&f->elem);
+			lock_release (&used_lock);      
+      return f;
+    }
+  lock_release (&used_lock);
+  return NULL;
+}
 
 // SYNCH
 struct frame *
 frame_get ()
 {
-	if (list_empty (&frame_free_list))
-		PANIC ("OUT OF MEM");
-
+	struct frame *f = NULL;
 	lock_acquire (&free_lock);	
-	struct list_elem *e = list_pop_front (&frame_free_list);
-	lock_release (&free_lock);
+	if (list_empty (&frame_free_list))
+		{
+			lock_release (&free_lock);
+			while (!f)
+				f = evict ();
+		}
+	else
+		{
+			struct list_elem *e = list_pop_front (&frame_free_list);
+			lock_release (&free_lock);
 
-	struct frame *f = list_entry (e, struct frame, elem);
+			f = list_entry (e, struct frame, elem);
+		}
+
 	lock_acquire (&used_lock);
 	list_push_back (&frame_used_list, &f->elem);
 	lock_release (&used_lock);
@@ -71,12 +102,6 @@ frame_free (struct frame *f)
 }
 
 void
-frame_free_paddr (void *paddr)
-{
-
-}
-
-void
 frame_cleanup ()
 {
 	while (!list_empty (&frame_free_list))
@@ -88,5 +113,6 @@ frame_cleanup ()
     }	
   if (!list_empty (&frame_used_list))
   	PANIC ("THIS LIST SHOULD NOT BE EMPTY");
+  
 }
 // CLEAN UP FRAME TABLE SHIT

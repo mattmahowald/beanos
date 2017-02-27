@@ -5,9 +5,13 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include "filesys/file.h"
+#include "vm/swap.h"
 
 #define LAZY true
 #define WRITABLE true
+
+// TODO im not sure why this wouldnt work as swap is imported
+// typedef uint32_t swapid_t;
 
 /* States the frame's location. */
 enum page_location
@@ -50,6 +54,7 @@ struct spte
   struct frame *frame;                  /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
+  swapid_t swapid;
   bool loaded;
 };
 
@@ -59,7 +64,7 @@ void page_add_spte (enum page_location, void *, struct spte_file, bool, bool);
 void page_remove_spte (void *);
 struct spte * page_get_spte (void *);
 bool page_load (void *);
-
+void page_unload (struct spte *);
 // TODO these names are a little inconsistent
 void page_init (struct hash *spt);
 void page_spt_cleanup (struct hash *); 
