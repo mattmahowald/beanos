@@ -25,7 +25,7 @@ frame_init ()
 	lock_init (&used_lock);
 	list_init (&frame_free_list);
 	list_init (&frame_used_list);
-
+	swap_init ();
 	for(;;)
 		{
 			void *addr = palloc_get_page (PAL_USER);
@@ -57,7 +57,7 @@ evict ()
       // if not pinned 
       page_unload (f->spte);
 			list_remove (&f->elem);
-			lock_release (&used_lock);      
+			lock_release (&used_lock);
       return f;
     }
   lock_release (&used_lock);

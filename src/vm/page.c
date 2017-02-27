@@ -122,6 +122,8 @@ page_remove_spte (void *vaddr)
   if (found->frame != NULL)
     frame_free (found->frame);
 
+  // TODO potentially remove from swap
+
   /* Remove entry from supplementary page table. */
   hash_delete (spt, &found->elem);
 
@@ -200,6 +202,7 @@ page_unload (struct spte *spte)
 
           if (write != (int) spte->file_data.read)
           {
+            // I think this is happening because we haven't started pinning things yet
             // TODO I'm not really sure what to do here.
             PANIC ("Could not write back to disk.");
           }
@@ -213,7 +216,7 @@ page_unload (struct spte *spte)
       spte->location = SWAP;
       break;
     }
-
+  spte->frame = NULL;
   pagedir_clear_page (spte->owner->pagedir, spte->vaddr);
 }
 
@@ -250,6 +253,9 @@ free_spte (struct hash_elem *e, void *aux UNUSED)
   struct spte *entry = hash_entry (e, struct spte, elem);
   if (entry->frame != NULL)
     frame_free (entry->frame);
+
+  // TODO remove from swap
+
   free (entry);
 }
 

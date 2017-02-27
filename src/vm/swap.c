@@ -4,6 +4,7 @@
 #include "vm/frame.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include <stdio.h>
 
 #define SECTORS_PER_PAGE PGSIZE / BLOCK_SECTOR_SIZE
 
@@ -17,8 +18,13 @@ static block_sector_t get_free_sectors (void);
 void
 swap_init ()
 {
+	printf("in swap ini\n");
 	swap_block = block_get_role (BLOCK_SWAP);
+	printf("got block\n");
+	if (swap_block == NULL)
+		PANIC ("what the fuck");
 	size_t num_sectors = block_size (swap_block);
+	printf("block size?\n");
 	swap_map = bitmap_create (num_sectors);
 	if (!swap_map)
 		PANIC ("UNABLE TO ALLOCATE BITMAP IN SWAP.C");
