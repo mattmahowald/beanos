@@ -182,6 +182,7 @@ page_load (void *vaddr)
   /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
+  // TODO unsure if we actually need to do this (GET RID).
   pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
   spte->loaded = true;
   return true;
@@ -204,7 +205,7 @@ page_unload (struct spte *spte)
           {
             // I think this is happening because we haven't started pinning things yet
             // TODO I'm not really sure what to do here.
-            PANIC ("Could not write back to disk.");
+            PANIC ("Could not write back to disk. Wanted to write %d, wrote %d", spte->file_data.read, write);
           }
         }
       break;
@@ -217,6 +218,7 @@ page_unload (struct spte *spte)
       break;
     }
   spte->frame = NULL;
+  spte->loaded = false;
   pagedir_clear_page (spte->owner->pagedir, spte->vaddr);
 }
 

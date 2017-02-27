@@ -54,11 +54,17 @@ evict ()
       		pagedir_set_accessed (f->spte->owner->pagedir, f->spte->vaddr, false);
       		continue;
       	}
-      // if not pinned 
-      page_unload (f->spte);
-			list_remove (&f->elem);
-			lock_release (&used_lock);
-      return f;
+      // if not pinned
+      if (!f->pinned)
+      	{
+      		f->pinned = true;	
+      		page_unload (f->spte);
+					list_remove (&f->elem);
+					lock_release (&used_lock);
+      		f->pinned = false;
+      		return f;
+      	}	
+
     }
   lock_release (&used_lock);
   return NULL;
