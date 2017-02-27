@@ -7,7 +7,7 @@
 typedef block_sector_t swapid_t;
 
 void swap_init (void);
-swapid_t swap_write_page (void *);
-void swap_read_page (swapid_t);
+swapid_t swap_write_page (uint8_t *);
+void swap_read_page (uint8_t *, swapid_t);
 
 #endif /* vm/swap.h */
