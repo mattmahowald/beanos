@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include "filesys/file.h"
+#include "userprog/pagedir.h"
 #include "vm/swap.h"
 
 #define LAZY true
@@ -47,8 +48,8 @@ struct spte_file
    use the user virtual address rather than the kernel virtual address. */
 struct spte 
 {
-  struct thread *owner;
   struct hash_elem elem;        /* Hash element for the spt. */
+  uint32_t *pd;                 /* Page directory for the spte's thread. */
   enum page_location location;  /* Location of the frame. */
   void *vaddr;                  /* User virtual address. */
   struct frame *frame;                  /* Kernel virtual address. */

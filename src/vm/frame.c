@@ -48,10 +48,9 @@ evict ()
        e = list_next (e))
     {
       struct frame *f = list_entry (e, struct frame, elem);
-      // TODO maybe change owner field directly to pagedir, skip one level of indirection
-      if (pagedir_is_accessed (f->spte->owner->pagedir, f->spte->vaddr))
+      if (pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
       	{
-      		pagedir_set_accessed (f->spte->owner->pagedir, f->spte->vaddr, false);
+      		pagedir_set_accessed (f->spte->pd, f->spte->vaddr, false);
       		continue;
       	}
       // if not pinned

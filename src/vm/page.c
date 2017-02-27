@@ -60,7 +60,7 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   if (spte == NULL)
     PANIC ("Malloc failed in allocating a supplementary page table entry");
 
-  spte->owner = thread_current ();
+  spte->pd = thread_current ()->pagedir;
   spte->location = loc;
   spte->vaddr = vaddr;
   spte->frame = NULL;
@@ -192,7 +192,7 @@ page_unload (struct spte *spte)
   switch (spte->location)
     {
     case DISK:
-      if (pagedir_is_dirty (spte->owner->pagedir, spte->vaddr))
+      if (pagedir_is_dirty (spte->pd, spte->vaddr))
         {
           syscall_acquire_filesys_lock ();
           file_seek (spte->file_data.file, spte->file_data.ofs);
@@ -216,7 +216,7 @@ page_unload (struct spte *spte)
       break;
     }
   spte->frame = NULL;
-  pagedir_clear_page (spte->owner->pagedir, spte->vaddr);
+  pagedir_clear_page (spte->pd, spte->vaddr);
 }
 
 /* Cleanup the supplementary page table. */
