@@ -1,9 +1,13 @@
-/* Implements eviction algorithm? Or maybe that goes in timer but
-   actually moving and fetching pages from the swap goes in here.
+#ifndef VM_PAGE_H
+#define VM_PAGE_H
 
-   Also remember to keep track of all evicted pages we write to swap
-   in our supplementary page table.
+#include <inttypes.h>
+#include "devices/block.h"
 
-   Another question is how is this going to be stored? What happens
-   when we write to disk? Can we maintain a pointer or a file 
-   descriptor or what? */
+typedef block_sector_t swapid_t;
+
+void swap_init (void);
+swapid_t swap_write_page (void *);
+void swap_read_page (swapid_t);
+
+#endif /* vm/swap.h */
