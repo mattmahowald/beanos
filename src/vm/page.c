@@ -109,7 +109,6 @@ page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
 void 
 page_remove_spte (void *vaddr)
 {
-  printf("made it into page rmeove\n");
   
   /* Lookup vaddr in supplementary page table. */
   vaddr = round_to_page (vaddr);
@@ -118,14 +117,10 @@ page_remove_spte (void *vaddr)
   if (!found)
     return;
 
-  printf("made it here\n");
   /* Free frame if it exists. */
   if (found->frame != NULL)
-    {
-      frame_free (found->frame);
-    }
+    frame_free (found->frame);
 
-  printf("im wrong\n");
   /* Remove entry from supplementary page table. */
   hash_delete (spt, &found->elem);
 
@@ -217,9 +212,11 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
 /* Destructor for spte. */
 void
 free_spte (struct hash_elem *e, void *aux UNUSED)
-{
-  printf("calling spte remove on v addr %p\n", hash_entry (e, struct spte, elem)->vaddr);
-  page_remove_spte (hash_entry (e, struct spte, elem)->vaddr);
+{  
+  struct spte *entry = hash_entry (e, struct spte, elem);
+  if (entry->frame != NULL)
+    frame_free (entry->frame);
+  free (entry);
 }
 
 // TODO remove

@@ -45,12 +45,12 @@ frame_init ()
 struct frame *
 frame_get ()
 {
-	lock_acquire (&free_lock);
+	if (list_empty (&frame_free_list))
+		PANIC ("OUT OF MEM");
+
+	lock_acquire (&free_lock);	
 	struct list_elem *e = list_pop_front (&frame_free_list);
 	lock_release (&free_lock);
-
-	if (!e)
-		PANIC ("RAN OUT OF MEM");
 
 	struct frame *f = list_entry (e, struct frame, elem);
 	lock_acquire (&used_lock);
@@ -62,7 +62,6 @@ frame_get ()
 void
 frame_free (struct frame *f)
 {
-	printf("freeing frame corresponding to vaddr %p\n", f->vaddr);
 	lock_acquire (&used_lock);
 	list_remove (&f->elem);
 	lock_release (&used_lock);

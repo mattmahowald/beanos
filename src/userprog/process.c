@@ -243,7 +243,6 @@ process_exit (void)
       intr_set_level(old_level);
       free (c);
     }
-  printf("first\n");
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -262,7 +261,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  printf("here\n");
   /* Clean up resources associated with the supplemental page table. */
   page_spt_cleanup (&cur->spt);
 }
