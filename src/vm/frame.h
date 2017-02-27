@@ -22,7 +22,7 @@ void *frame_table[MAX_FRAME_TABLE_ENTRIES];
 struct bitmap *frame_bitmap;
 
 void frame_init (void);
-void *frame_get (void);
+struct frame *frame_get (void);
 void frame_free (struct frame *);
 void frame_cleanup (void);
 

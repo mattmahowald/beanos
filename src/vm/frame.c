@@ -2,6 +2,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "vm/frame.h"
+#include <stdio.h>
 #include <list.h>
 #include "threads/malloc.h"
 
@@ -41,7 +42,7 @@ frame_init ()
 // }
 
 // SYNCH
-void *
+struct frame *
 frame_get ()
 {
 	lock_acquire (&free_lock);
@@ -52,19 +53,28 @@ frame_get ()
 		PANIC ("RAN OUT OF MEM");
 
 	struct frame *f = list_entry (e, struct frame, elem);
-
+	lock_acquire (&used_lock);
+	list_push_back (&frame_used_list, &f->elem);
+	lock_release (&used_lock);
 	return f;
 }
 
 void
 frame_free (struct frame *f)
 {
+	printf("freeing frame corresponding to vaddr %p\n", f->vaddr);
 	lock_acquire (&used_lock);
 	list_remove (&f->elem);
 	lock_release (&used_lock);
 	lock_acquire (&free_lock);
 	list_push_back (&frame_free_list, &f->elem);
 	lock_release (&free_lock);
+}
+
+void
+frame_free_paddr (void *paddr)
+{
+
 }
 
 void
