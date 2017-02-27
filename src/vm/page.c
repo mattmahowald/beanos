@@ -66,7 +66,6 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   spte->frame = NULL;
   spte->writable = writable;
   spte->file_data = file_data;
-  spte->loaded = false;
   /* Insert the spte into the spt, panicking on fail. */
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
   if (e != NULL)
@@ -184,7 +183,6 @@ page_load (void *vaddr)
                     spte->writable);
   // TODO unsure if we actually need to do this (GET RID).
   pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
-  spte->loaded = true;
   return true;
 }
 
@@ -218,7 +216,6 @@ page_unload (struct spte *spte)
       break;
     }
   spte->frame = NULL;
-  spte->loaded = false;
   pagedir_clear_page (spte->owner->pagedir, spte->vaddr);
 }
 

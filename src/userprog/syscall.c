@@ -73,7 +73,7 @@ validate_string (const char *string)
       if (!page)
         sys_exit (-1);
 
-      if (!page->loaded)
+      if (!page->frame)
         page_load ((void *)cur_addr);
 
       while (cur_addr++ % PGSIZE != 0)
@@ -112,7 +112,7 @@ validate_address (void *address, size_t size, bool writable)
           if (writable && !page->writable)
             sys_exit (-1);
 
-          if (!page->loaded)
+          if (!page->frame)
             page_load (cur_addr);
         }
       cur_addr += PGSIZE;
@@ -445,7 +445,7 @@ syscall_unmap (struct mmapped_file *mf)
   while (next_page < (uint8_t *) mf->end_vaddr)
     {
       struct spte *page = page_get_spte (next_page);
-      if (page->loaded)
+      if (page->frame)
         {
           if (pagedir_is_dirty (thread_current ()->pagedir, next_page))
             {

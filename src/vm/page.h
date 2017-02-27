@@ -55,7 +55,6 @@ struct spte
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
   swapid_t swapid;
-  bool loaded;
 };
 
 
