@@ -3,6 +3,7 @@
 
 // imports
 #include <bitmap.h>
+#include <list.h>
 
 // #defines, enums, typedefs
 #define MAX_FRAME_TABLE_ENTRIES 1024
@@ -10,8 +11,10 @@
 /* Big frame explanation comment. */
 
 struct frame {
-    int index;
-    void *data;
+    void *paddr;
+    struct spte *spte;
+    struct list_elem elem;
+    bool pinned;
 };
 
 /* Array and 8iju*/
@@ -20,7 +23,7 @@ struct bitmap *frame_bitmap;
 
 void frame_init (void);
 void *frame_get (void);
-void frame_free (void *);
+void frame_free (struct frame *);
 void frame_cleanup (void);
 
 #endif /* vm/frame.h */

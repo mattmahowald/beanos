@@ -43,10 +43,11 @@ struct spte_file
    use the user virtual address rather than the kernel virtual address. */
 struct spte 
 {
+  struct thread *owner;
   struct hash_elem elem;        /* Hash element for the spt. */
   enum page_location location;  /* Location of the frame. */
   void *vaddr;                  /* User virtual address. */
-  void *frame;                  /* Kernel virtual address. */
+  struct frame *frame;                  /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
   bool loaded;

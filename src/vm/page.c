@@ -59,6 +59,7 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   if (spte == NULL)
     PANIC ("Malloc failed in allocating a supplementary page table entry");
 
+  spte->owner = thread_current ();
   spte->location = loc;
   spte->vaddr = vaddr;
   spte->frame = NULL;
@@ -142,6 +143,7 @@ page_load (void *vaddr)
   // NOTE: if swap is full, frame will panic
   /* Allocate a frame for the virtual page. */
   spte->frame = frame_get ();
+  spte->frame->spte = spte;
 
   /* Determine where the entry and retrieve. */
   switch (spte->location)
@@ -150,7 +152,7 @@ page_load (void *vaddr)
       /* Read the file from the filesystem from the appropriate offset. */
       syscall_acquire_filesys_lock ();
       file_seek (spte->file_data.file, spte->file_data.ofs);
-      int read = file_read (spte->file_data.file, spte->frame, 
+      int read = file_read (spte->file_data.file, spte->frame->paddr, 
                             spte->file_data.read);
       syscall_release_filesys_lock ();
 
@@ -161,7 +163,7 @@ page_load (void *vaddr)
         }
 
       /* Zero the remainder of the frame space for security. */
-      memset ((uint8_t *) spte->frame + spte->file_data.read, 0, 
+      memset ((uint8_t *) spte->frame->paddr + spte->file_data.read, 0, 
               spte->file_data.zero);
       break;
     case SWAP:
@@ -169,11 +171,11 @@ page_load (void *vaddr)
       break;
     case ZERO:
       // TODO needs to be done in the background
-      memset (spte->frame, 0, PGSIZE);
+      memset (spte->frame->paddr, 0, PGSIZE);
       break;
     }
   /* Point the pagedir for the current thread to the appropriate frame. */
-  pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame, 
+  pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
   spte->loaded = true;
   return true;
@@ -231,6 +233,6 @@ page_validate (struct hash *spt)
         default     : loc = "UNKN";
         }
       printf ("PAGE TABLE ENTRY %d in %s\nVirtual Address  %p\nPhysical Address %p\nis %swritable\n\n", 
-              idx++, loc, spte->vaddr, spte->frame, spte->writable ? "" : "not ");
+              idx++, loc, spte->vaddr, spte->frame->paddr, spte->writable ? "" : "not ");
     }
 }
