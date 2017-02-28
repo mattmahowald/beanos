@@ -18,7 +18,6 @@
 
 
 static void syscall_handler (struct intr_frame *);
-// static char *truncate_to_page (char *addr);
 static void validate_string (const char *string);
 static void validate_address (void * address, size_t size, bool writable);
 static void sys_halt (void);
@@ -51,13 +50,6 @@ syscall_init (void)
   lock_init (&fd_lock);
   lock_init (&mapid_lock);
 }
-
-/* Truncates address to the nearest multiple of PGSIZE. */
-// static char *
-// truncate_to_page (char *addr)
-// {
-//   return (char *)((unsigned) addr & -1*PGSIZE);
-// }
 
 /* Helper function that validates the entirety of a string is mapped 
    user virtual address space. */
@@ -186,7 +178,6 @@ static int
 sys_exec (const char *cmd_line)
 {
   validate_string (cmd_line);
-
  
   return process_execute (cmd_line);
 }
@@ -420,7 +411,7 @@ sys_mmap (int fd, void *addr)
   uint8_t *next_page = addr;
   bytes_mapped = 0;
   bytes_to_map = file_len;
-  while (bytes_mapped < file_len)
+  while (bytes_mapped <= file_len)
     {
       file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
       zero_bytes = PGSIZE - file_bytes;
@@ -428,6 +419,11 @@ sys_mmap (int fd, void *addr)
       if (page_get_spte (next_page))
         {
           // maybe instead return map_failed .. but then free what you already did? fuck
+          while (next_page != addr)
+            {
+              next_page -= PGSIZE;
+              page_remove_spte (next_page);              
+            }
           return MAP_FAILED;
         }
 

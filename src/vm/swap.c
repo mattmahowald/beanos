@@ -47,9 +47,12 @@ swap_write_page (uint8_t *vaddr)
 void
 swap_read_page (uint8_t *vaddr, swapid_t swapid)
 {
-	size_t i; 
-	for (i = 0; i < SECTORS_PER_PAGE; i++)
-		block_read (swap_block, swapid + i, vaddr + i * BLOCK_SECTOR_SIZE);
+	if (vaddr)
+		{
+			size_t i; 
+			for (i = 0; i < SECTORS_PER_PAGE; i++)
+			block_read (swap_block, swapid + i, vaddr + i * BLOCK_SECTOR_SIZE);
+		}
 
 	lock_acquire (&bitmap_lock);
 	bitmap_set_multiple (swap_map, (block_sector_t) swapid, SECTORS_PER_PAGE, false);

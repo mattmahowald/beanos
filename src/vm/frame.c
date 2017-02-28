@@ -92,6 +92,7 @@ frame_get ()
 	lock_acquire (&used_lock);
 	list_push_back (&frame_used_list, &f->elem);
 	lock_release (&used_lock);
+	ASSERT (f);
 	return f;
 }
 
@@ -117,7 +118,16 @@ frame_cleanup ()
       free (f);
     }	
   if (!list_empty (&frame_used_list))
-  	PANIC ("THIS LIST SHOULD NOT BE EMPTY");
+  	{
+  		while (!list_empty (&frame_used_list))
+    	{
+      		struct list_elem *e = list_pop_front (&frame_used_list);
+      		struct frame *f = list_entry (e, struct frame, elem); 
+      		printf("fuck thus shti %p\n", f->paddr);
+      		printf("%p\n", f->spte->frame);
+      	}
+  		PANIC ("THIS LIST SHOULD BE EMPTY");
+  	}	
   
 }
 // CLEAN UP FRAME TABLE SHIT
