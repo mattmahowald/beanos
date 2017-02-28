@@ -195,16 +195,17 @@ page_unload (struct spte *spte)
       if (pagedir_is_dirty (spte->pd, spte->vaddr))
         {
           syscall_acquire_filesys_lock ();
-          file_seek (spte->file_data.file, spte->file_data.ofs);
-          int write = file_write (spte->file_data.file, spte->frame->paddr, spte->file_data.read);
+          // TODOOOOOOOOOOOOOOO 
+          // file_seek (spte->file_data.file, spte->file_data.ofs);
+          // int write = file_write (spte->file_data.file, spte->frame->paddr, spte->file_data.read);
           syscall_release_filesys_lock ();
 
-          if (write != (int) spte->file_data.read)
-          {
+          // if (write != (int) spte->file_data.read)
+          // {
             // I think this is happening because we haven't started pinning things yet
             // TODO I'm not really sure what to do here.
-            PANIC ("Could not write back to disk. Wanted to write %d, wrote %d", spte->file_data.read, write);
-          }
+            // PANIC ("Could not write back to disk. Wanted to write %d, wrote %d", spte->file_data.read, write);
+          // }
         }
       break;
     case SWAP:
@@ -251,7 +252,12 @@ free_spte (struct hash_elem *e, void *aux UNUSED)
 {  
   struct spte *entry = hash_entry (e, struct spte, elem);
   if (entry->frame != NULL)
-    frame_free (entry->frame);
+    {      
+      struct frame *f = entry->frame;
+      if (entry->location == DISK)
+        page_unload (entry);
+      frame_free (f);
+    }
 
   // TODO remove from swap
 

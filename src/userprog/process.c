@@ -219,6 +219,9 @@ process_exit (void)
   struct thread *cur = thread_current ();
   dispose_resources (cur);
 
+  page_spt_cleanup (&cur->spt);
+
+
   enum intr_level old_level = intr_disable ();
   file_close (cur->exec_file);
   intr_set_level (old_level);
@@ -262,7 +265,6 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   /* Clean up resources associated with the supplemental page table. */
-  page_spt_cleanup (&cur->spt);
 }
 
 /* Sets up the CPU for running user code in the current
