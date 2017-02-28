@@ -75,7 +75,6 @@ validate_string (const char *string)
     }
 }
 
-
 /* Helper function that validates the passed pointer as a legal, user
    virtual space address. */
 static void
@@ -123,8 +122,6 @@ load_and_pin (void *vaddr, size_t size)
       page->frame->pinned = true;
       cur_addr += PGSIZE;
     }
-
-  
 }
 
 /* System call halt() shuts the operating system down. */
@@ -178,7 +175,7 @@ static int
 sys_exec (const char *cmd_line)
 {
   validate_string (cmd_line);
- 
+
   return process_execute (cmd_line);
 }
 
@@ -411,19 +408,15 @@ sys_mmap (int fd, void *addr)
   uint8_t *next_page = addr;
   bytes_mapped = 0;
   bytes_to_map = file_len;
-  while (bytes_mapped <= file_len)
+  while (bytes_mapped < file_len)
     {
       file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
       zero_bytes = PGSIZE - file_bytes;
       /* Make sure file will not overwrite existing segments. */
       if (page_get_spte (next_page))
         {
+          // TODO TODO TODO
           // maybe instead return map_failed .. but then free what you already did? fuck
-          while (next_page != addr)
-            {
-              next_page -= PGSIZE;
-              page_remove_spte (next_page);              
-            }
           return MAP_FAILED;
         }
 

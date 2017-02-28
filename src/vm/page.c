@@ -183,7 +183,7 @@ page_load (void *vaddr)
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
   // TODO unsure if we actually need to do this (GET RID).
-  pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
+  // pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
   return true;
 }
 

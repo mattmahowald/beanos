@@ -60,7 +60,6 @@ process_execute (const char *cmdline)
       palloc_free_page (cmd_copy);
       return TID_ERROR; 
     }  
-  
   /* Wait on child to load executable and stack then verify success. */
   struct thread *cur = thread_current ();
   struct thread *child = thread_get_from_tid (tid); 
@@ -103,6 +102,7 @@ initialize_child_thread (struct thread *child, struct thread *cur, tid_t tid)
 static void
 start_process (void *cmdline_)
 {
+
   char *cmdline = cmdline_;
 
   struct intr_frame if_;
@@ -129,7 +129,6 @@ start_process (void *cmdline_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  // printf("were fucking jumpong in\n");
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }

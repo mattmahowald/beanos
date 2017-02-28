@@ -18,13 +18,8 @@ static block_sector_t get_free_sectors (void);
 void
 swap_init ()
 {
-	printf("in swap ini\n");
 	swap_block = block_get_role (BLOCK_SWAP);
-	printf("got block\n");
-	if (swap_block == NULL)
-		PANIC ("what the fuck");
 	size_t num_sectors = block_size (swap_block);
-	printf("block size?\n");
 	swap_map = bitmap_create (num_sectors);
 	if (!swap_map)
 		PANIC ("UNABLE TO ALLOCATE BITMAP IN SWAP.C");
@@ -51,7 +46,7 @@ swap_read_page (uint8_t *vaddr, swapid_t swapid)
 		{
 			size_t i; 
 			for (i = 0; i < SECTORS_PER_PAGE; i++)
-			block_read (swap_block, swapid + i, vaddr + i * BLOCK_SECTOR_SIZE);
+				block_read (swap_block, swapid + i, vaddr + i * BLOCK_SECTOR_SIZE);
 		}
 
 	lock_acquire (&bitmap_lock);
@@ -63,7 +58,7 @@ static block_sector_t
 get_free_sectors ()
 {
 	lock_acquire (&bitmap_lock);
-	size_t index = bitmap_scan_and_flip (swap_map, 0, SECTORS_PER_PAGE, /* bits that are */ false);
+	size_t index = bitmap_scan_and_flip (swap_map, 0, SECTORS_PER_PAGE, false);
 	lock_release (&bitmap_lock);
 	if (index == BITMAP_ERROR)
 		PANIC ("NO SWAP SLOT AVAILABLE");
