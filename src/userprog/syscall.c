@@ -13,6 +13,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include <string.h>
+#include "vm/frame.h"
 #include "vm/page.h"
 
 
@@ -111,12 +112,27 @@ validate_address (void *address, size_t size, bool writable)
         {
           if (writable && !page->writable)
             sys_exit (-1);
-
-          if (!page->frame)
-            page_load (cur_addr);
         }
       cur_addr += PGSIZE;
     }
+}
+
+static void
+load_and_pin (void *vaddr, size_t size)
+{
+  uint8_t *cur_addr = round_to_page (vaddr);
+  uint8_t *end = cur_addr + size - 1;
+
+  while (cur_addr <= end) 
+    {
+      struct spte *page = page_get_spte (cur_addr);
+      if (!page->frame)
+        page_load (cur_addr);
+      page->frame->pinned = true;
+      cur_addr += PGSIZE;
+    }
+
+  
 }
 
 /* System call halt() shuts the operating system down. */
@@ -288,6 +304,7 @@ sys_read (int fd, void *buffer, unsigned size)
     sys_exit (-1); 
   struct file *f = fd_->f;
   
+  load_and_pin (buffer, size);
   syscall_acquire_filesys_lock ();
   read = file_read (f, buffer, size);
   syscall_release_filesys_lock (); 
@@ -331,6 +348,7 @@ sys_write (int fd, void *buffer, unsigned size)
     sys_exit (-1);
   struct file *f = fd_->f;
 
+  load_and_pin (buffer, size);
   syscall_acquire_filesys_lock ();
   written = file_write (f, buffer, size);
   syscall_release_filesys_lock ();

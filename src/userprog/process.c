@@ -563,7 +563,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       /* Map this page into the supplemental page table. */
       struct spte_file f = {file, ofs, page_read_bytes, page_zero_bytes};
-      page_add_spte (DISK, upage, f, writable, LAZY);
+      page_add_spte (EXEC, upage, f, writable, LAZY);
 
       /* Advance. */
       read_bytes -= page_read_bytes;

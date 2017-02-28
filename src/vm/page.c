@@ -153,6 +153,7 @@ page_load (void *vaddr)
   switch (spte->location)
     {
     case DISK:
+    case EXEC:
       /* Read the file from the filesystem from the appropriate offset. */
       syscall_acquire_filesys_lock ();
       file_seek (spte->file_data.file, spte->file_data.ofs);
@@ -208,6 +209,12 @@ page_unload (struct spte *spte)
           // }
         }
       break;
+    case EXEC:
+      if (pagedir_is_dirty (spte->pd, spte->vaddr))
+        {
+          spte->swapid = swap_write_page (spte->frame->paddr);
+          spte->location = SWAP;
+        }
     case SWAP:
       spte->swapid = swap_write_page (spte->frame->paddr);
       break;

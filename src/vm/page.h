@@ -17,9 +17,10 @@
 /* States the frame's location. */
 enum page_location
 {
-  DISK,  /* Frame is a file located on disk. */
-  SWAP,  /* Frame has been evicted and placed on the swap. */
-  ZERO   /* Frame does not exist anywhere, must be alloc'd and zero'd. */
+  DISK,  /* Page is a file located on disk. */
+  EXEC,  /* Page is an executable file. */
+  SWAP,  /* Page has been evicted and placed on the swap. */
+  ZERO   /* Page does not exist anywhere, must be alloc'd and zero'd. */
 };
 
 /* File data held by an spte. */
