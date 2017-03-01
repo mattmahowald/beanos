@@ -17,10 +17,11 @@
 
 inline void *round_to_page (void *vaddr);
 static struct spte *hash_lookup_spte (struct hash *spt, void *vaddr);
+static void clear_user_data (struct spte *entry);
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                 void *aux UNUSED);
-void free_spte (struct hash_elem *e, void *aux UNUSED);
+void page_free_spte (struct hash_elem *e, void *aux UNUSED);
 
 /* Rounds a virtual address down to its page base. */
 inline void *
@@ -105,33 +106,55 @@ page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
   return true;
 }
 
+static void
+clear_user_data (struct spte *entry)
+{
+  lock_acquire (&entry->spte_lock);
+  if (entry->frame != NULL)
+    {      
+      struct frame *f = entry->frame;
+      if (entry->location == DISK)
+        page_unload (entry);
+      frame_free (f);
+    }
+  else if (entry->location == SWAP)
+    {
+      swap_read_page (NULL, entry->swapid);
+      lock_release (&entry->spte_lock);
+    }
+  else
+    lock_release (&entry->spte_lock);  
+}
+
+/* Destructor for spte. */
+void
+page_free_spte (struct hash_elem *e, void *aux UNUSED)
+{  
+  struct spte *entry = hash_entry (e, struct spte, elem);
+  clear_user_data (entry);
+
+  free (entry);
+}
+
 /* Remove the entry, freeing the frame if it exists, the hash entry, and the
    memory associated with the spte itself. */
 void 
 page_remove_spte (void *vaddr)
 {
-  
   /* Lookup vaddr in supplementary page table. */
   vaddr = round_to_page (vaddr);
   struct hash *spt = &thread_current ()->spt;
-  struct spte *found = hash_lookup_spte (spt, vaddr);
-  if (!found)
+  struct spte *entry = hash_lookup_spte (spt, vaddr);
+  if (!entry)
     return;
 
-  /* Free frame if it exists. */
-  lock_acquire (&found->spte_lock);  
-  if (found->frame != NULL)
-    frame_free (found->frame);
-  lock_release (&found->spte_lock);
-
-  if (found->location == SWAP)
-    swap_read_page (NULL, found->swapid);
+  clear_user_data (entry);
 
   /* Remove entry from supplementary page table. */
-  hash_delete (spt, &found->elem);
+  hash_delete (spt, &entry->elem);
 
   /* Free the entry itself. */
-  free (found);
+  free (entry);
 }
 
 /* Loads a frame into the virtual address VADDR, */
@@ -240,7 +263,7 @@ page_unload (struct spte *spte)
 void 
 page_spt_cleanup (struct hash *spt) 
 {
-  hash_destroy (spt, free_spte);
+  hash_destroy (spt, page_free_spte);
 }
 
 /* Hash function for spte. */
@@ -260,28 +283,6 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct spte *b = hash_entry (b_, struct spte, elem);
 
   return a->vaddr < b->vaddr;
-}
-
-/* Destructor for spte. */
-void
-free_spte (struct hash_elem *e, void *aux UNUSED)
-{  
-  struct spte *entry = hash_entry (e, struct spte, elem);
-  // TODO synchronize
-  if (entry->frame != NULL)
-    {      
-      struct frame *f = entry->frame;
-      if (entry->location == DISK)
-        page_unload (entry);
-      frame_free (f);
-    }
-  else if (entry->location == SWAP)
-    {
-      swap_read_page (NULL, entry->swapid);
-    }  
-  // TODO remove from swap
-
-  free (entry);
 }
 
 // TODO remove
