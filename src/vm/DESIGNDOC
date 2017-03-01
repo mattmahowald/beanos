@@ -130,7 +130,7 @@ We avoid the issue entirely by keeping the supplementary page table as
 a per-process table.
 
 I believe we only use the supplied user virtual addresses in the kernal. Also, 
-we still use palloc for kernal memery (i.e. no spte stuff)
+we still use palloc for kernel memery (i.e. no spte stuff)
 
 ---- SYNCHRONIZATION ----
 
@@ -147,12 +147,6 @@ not empty, the first free frame is popped before releasing the lock. Thus, the
 free list will always remain intact.
 
 If no frame is free, a process releases the free_lock and 
-
-USED_LOCK
-
-PINNING
-
-
 
 ---- RATIONALE ----
 
@@ -188,9 +182,21 @@ clock algorithm, as it can be iterated over easily.
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
-We use the two-hand clock cycle algorithm.
+We use the two-hand clock cycle algorithm. Two global references to 
+used frame list elements iterate over the used list, the first setting
+the accesssed bit to false, the second evicting the first frame 
+encountered with an accessed bit set to false. 
 
+These two references are guarded by the used frame list lock and are only
+updated by one eviction algorithm at a time.
 
+To keep processes from evicting the same frame, we used a lock on the 
+frame table (specifically the used frame list). This lock is acquired
+and held while our eviction algorithm selects a frame.
+
+As described in B8, we use a pinned flag to avoid evicting frames that
+are referenced by other threads in the process of loading a page or
+using frame data in a call to sys_read or sys_write.
 
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
@@ -221,21 +227,47 @@ below PHYS_BASE and above the stack pointer.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+- System-wide data has a coarse lock (frame table and swap table.)
+
+- spte locks only can be acquired by eviction and page faulting back in.
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+We avoid P evicting Q's frame and Q faulting the page back in through
+a lock in the spte struct. When the page faults, our implementation
+loads the page through a call to page_load. In page_load, the lock must
+be acquired before any loading, specifically getting a frame, is done.
+In eviction, the same lock is acquired before the frame is actually
+swapped out. In doing so, we assure that the eviction will finish
+before the frame is loaded back in, avoiding race conditions.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+Mixture of B6 and B8? Not sure.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+Our mechanism for "locking" frames into physical memory is the pinned
+boolean flag. In a call to sys_read or sys_write, our implementation
+uses a helper function called load_and_pin. This function assures that
+the loaded pages that will be used in the system call will not be evicted
+by setting the "pinned" flag to true. In our eviction algorithm, we ignore
+pages that have been pinned.
+
+This flag has a double purpose, as we want to be sure not to evict pages
+that are in the process of being loaded. To that end, frame_get returns
+a pinned page, which the page_load function flips only once the page
+loading has run to completion.
 
 ---- RATIONALE ----
 
@@ -245,6 +277,12 @@ below PHYS_BASE and above the stack pointer.
 >> possibility for deadlock but allows for high parallelism.  Explain
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
+
+Our implementation uses a lock for every spte as described. This is as
+fine-grained as we could implement, as it allows for processes to evict and 
+page fault in concurrently on different pages seamlessly. Selecting a frame 
+to evict,on the other hand, requires a coarse lock over the entire frame 
+table, as two processes cannot elect to evict the same frame. 
 
              MEMORY MAPPED FILES
              ===================
