@@ -113,17 +113,18 @@ clear_user_data (struct spte *entry)
   if (entry->frame != NULL)
     {      
       struct frame *f = entry->frame;
+      
+      f->pinned = true;
       if (entry->location == DISK)
         page_unload (entry);
+      lock_release (&entry->spte_lock);
       frame_free (f);
+      return;
     }
   else if (entry->location == SWAP)
-    {
-      swap_read_page (NULL, entry->swapid);
-      lock_release (&entry->spte_lock);
-    }
-  else
-    lock_release (&entry->spte_lock);  
+    swap_read_page (NULL, entry->swapid);
+  
+  lock_release (&entry->spte_lock);  
 }
 
 /* Destructor for spte. */
@@ -256,7 +257,6 @@ page_unload (struct spte *spte)
       break;
     }
   spte->frame = NULL;
-  lock_release (&spte->spte_lock);
 }
 
 /* Cleanup the supplementary page table. */
