@@ -125,7 +125,7 @@ page_remove_spte (void *vaddr)
   lock_release (&found->spte_lock);
 
   if (found->location == SWAP)
-    swap_read (NULL, found->swapid);
+    swap_read_page (NULL, found->swapid);
 
   /* Remove entry from supplementary page table. */
   hash_delete (spt, &found->elem);
