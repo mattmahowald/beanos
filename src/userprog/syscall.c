@@ -115,7 +115,7 @@ static void
 load_and_pin (void *vaddr, size_t size)
 {
   uint8_t *cur_addr = round_to_page (vaddr);
-  uint8_t *end = cur_addr + size - 1;
+  uint8_t *end = vaddr + size - 1;
 
   while (cur_addr <= end) 
     {
@@ -132,7 +132,7 @@ static void
 unpin (void *vaddr, size_t size)
 {
   uint8_t *cur_addr = round_to_page (vaddr);
-  uint8_t *end = cur_addr + size - 1;
+  uint8_t *end = vaddr + size - 1;
 
   while (cur_addr <= end) 
     {
