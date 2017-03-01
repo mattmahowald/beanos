@@ -61,6 +61,7 @@ evict ()
 			
 			if (!f->pinned && !pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
       	{
+
       		f->pinned = true;	
 		      lock_release (&used_lock);
 		      page_unload (f->spte);
@@ -112,6 +113,8 @@ void
 frame_free (struct frame *f)
 {
 	lock_acquire (&used_lock);
+	// TODO remember this is somewhat racy
+	ASSERT (!f->pinned);
 	list_remove (&f->elem);
 	lock_release (&used_lock);
 	lock_acquire (&free_lock);

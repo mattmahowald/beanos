@@ -73,7 +73,7 @@ struct spte
   struct frame *frame;          /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
-  swapid_t swapid;              /* */
+  swapid_t swapid;              /* Sector in swap if in swap. */
 };
 
 FRAME.H
@@ -85,9 +85,11 @@ struct frame {
     bool pinned;
 };
 
-void *frame_table[MAX_FRAME_TABLE_ENTRIES];
-struct bitmap *frame_bitmap;
+struct list frame_free_list;    /* Keeps track of free frames. */
+struct list frame_used_list;    /* Keeps track of frames currently in use. */
 
+struct lock free_lock;          /* Used to sync frame_free_list. */
+struct lock used_lock;          /* Used to sync frame_used_list. */
 
 ---- ALGORITHMS ----
 
@@ -127,10 +129,24 @@ I believe:
 We avoid the issue entirely by keeping the supplementary page table as
 a per-process table.
 
+I believe we only use the supplied user virtual addresses in the kernal. Also, 
+we still use palloc for kernal memery (i.e. no spte stuff)
+
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
+
+There are two cases in frame acquisition — when frames are still free, and 
+when no frames are free (i.e. a frame needs to be evicted). We'll walk through
+how race conditions are avoided in both cases. 
+
+In order to recieve a frame, a process first must acquire the free_lock. This
+prevents any other process from accessing the frame free list. If the list is 
+not empty, the first free frame is popped before releasing the lock. Thus, the
+free list will always remain intact.
+
+If no frame is free, a process releases the free_lock and 
 
 USED_LOCK
 

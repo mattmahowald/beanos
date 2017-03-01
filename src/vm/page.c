@@ -119,12 +119,13 @@ page_remove_spte (void *vaddr)
     return;
 
   /* Free frame if it exists. */
-  
-  // TODO potentially racy
+  lock_acquire (&found->spte_lock);  
   if (found->frame != NULL)
     frame_free (found->frame);
+  lock_release (&found->spte_lock);
 
-  // TODO potentially remove from swap
+  if (found->location == SWAP)
+    swap_read (NULL, found->swapid);
 
   /* Remove entry from supplementary page table. */
   hash_delete (spt, &found->elem);
@@ -267,6 +268,7 @@ void
 free_spte (struct hash_elem *e, void *aux UNUSED)
 {  
   struct spte *entry = hash_entry (e, struct spte, elem);
+  // TODO synchronize
   if (entry->frame != NULL)
     {      
       struct frame *f = entry->frame;
