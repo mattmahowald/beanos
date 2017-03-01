@@ -73,7 +73,8 @@ struct spte
   struct frame *frame;          /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
-  swapid_t swapid;              /* Sector in swap if in swap. */
+  swapid_t swapid;              /* Swap ID for pages written to the swap. */
+  struct lock spte_lock;        /* Lock for each virtual page. */
 };
 
 FRAME.H
@@ -177,6 +178,26 @@ clock algorithm, as it can be iterated over easily.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+FRAME.H
+
+struct frame {
+    void *paddr;
+    struct spte *spte;
+    struct list_elem elem;
+    bool pinned;
+};
+
+/* Locks to guard frame table operations. */
+static struct lock free_lock;
+static struct lock used_lock;
+
+/* Frame table. */
+static struct list frame_free_list;
+static struct list frame_used_list;
+
+/* 
+static struct list_elem *clock_hand;
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
@@ -187,12 +208,10 @@ used frame list elements iterate over the used list, the first setting
 the accesssed bit to false, the second evicting the first frame 
 encountered with an accessed bit set to false. 
 
-These two references are guarded by the used frame list lock and are only
-updated by one eviction algorithm at a time.
-
 To keep processes from evicting the same frame, we used a lock on the 
 frame table (specifically the used frame list). This lock is acquired
-and held while our eviction algorithm selects a frame.
+and held while our eviction algorithm selects a frame. The two clock hand
+references are guarded by this lock.
 
 As described in B8, we use a pinned flag to avoid evicting frames that
 are referenced by other threads in the process of loading a page or

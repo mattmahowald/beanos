@@ -20,7 +20,8 @@ static struct list_elem *clock_hand;
 
 static struct frame * evict (void);
 
-
+/* Initializes the system wide frame table and locks. Init pallocs as
+	 many pages as possible and places them in the free list.*/
 void 
 frame_init ()
 {
@@ -43,6 +44,8 @@ frame_init ()
 	clock_hand = NULL;
 }
 
+/* Atomically selects a frame to evict using a two-hand clock algorithm,
+	 ignoring pages that have been pinned. */
 static struct frame *
 evict ()
 {
@@ -51,8 +54,9 @@ evict ()
   if (clock_hand == NULL)
   	clock_hand = list_begin (&frame_used_list);
 
+  /* TODO This doesn't make any sense anymore*/
   if (clock_hand == list_end (&frame_used_list))
-  	return false;
+  	return NULL;
 
   struct list_elem *start = clock_hand;
   do

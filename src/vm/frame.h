@@ -8,19 +8,17 @@
 // #defines, enums, typedefs
 #define MAX_FRAME_TABLE_ENTRIES 1024
 
-/* Big frame explanation comment. */
+/* Frame Table
 
-struct frame {
-    void *paddr;
-    struct spte *spte;
-    struct list_elem elem;
-    bool pinned;
-    bool loaded;
+	 The frame struct holds the information */
+
+struct frame 
+{
+    void *paddr;							/* The kernel virtual address of the frame. */
+    struct spte *spte;				/* The spte to refer to pagedir and vaddr. */
+    struct list_elem elem;		/* List element for the used and free lists. */
+    bool pinned;							/* Pinned flag to keep frames from eviction. */
 };
-
-/* Array and 8iju*/
-void *frame_table[MAX_FRAME_TABLE_ENTRIES];
-struct bitmap *frame_bitmap;
 
 void frame_init (void);
 struct frame *frame_get (void);

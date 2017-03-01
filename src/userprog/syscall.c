@@ -301,9 +301,7 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, unsigned size)
 { 
-  printf("here1\n");  
   validate_address (buffer, size, WRITABLE);
-  printf("here2\n");
   int read = -1;
 
   /* Read from the keyboard if the fd refers to STDIN. */
@@ -326,29 +324,21 @@ sys_read (int fd, void *buffer, unsigned size)
   if (!fd_)
     sys_exit (-1); 
   
-  printf("here3\n");
 
   struct file *f = fd_->f;
   
   load_and_pin (buffer, size);
   
-  printf("here4\n");
 
   syscall_acquire_filesys_lock ();
-  printf("here5\n");
   pinned (buffer, size);
-  printf("buffer %p size %d\n", buffer, (int) size);
   read = file_read (f, buffer, size);
   pinned (buffer, size);
-  printf("here6\n");
 
   syscall_release_filesys_lock (); 
-  
 
   unpin (buffer, size);
   
-  printf("here6\n");
-
   return read;
 }
 
@@ -566,87 +556,87 @@ syscall_handler (struct intr_frame *f)
   switch (*esp)
     {
     case SYS_HALT:
-      printf("1\n");
+      // printf("1\n");
       sys_halt ();
       break;
     case SYS_EXIT:
-      printf("2\n");
+      // printf("2\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_exit (esp[ONE_ARG]);
       break;
     case SYS_EXEC:
-      printf("3\n");
+      // printf("3\n");
 
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_exec (((char **)esp)[ONE_ARG]);
       break;
     case SYS_WAIT:
-      printf("4\n");
+      // printf("4\n");
 
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_wait (((tid_t *)esp)[ONE_ARG]);
       break;
     case SYS_CREATE:
-      printf("5\n");
+      // printf("5\n");
 
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_create (((char **)esp)[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_REMOVE:
-      printf("6\n");
+      // printf("6\n");
 
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_remove (((char **)esp)[ONE_ARG]);
       break;
     case SYS_OPEN:
-      printf("7\n");
+      // printf("7\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_open (((char **)esp)[ONE_ARG]);
       break;
     case SYS_FILESIZE:
-      printf("8\n");
+      // printf("8\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_filesize (esp[ONE_ARG]);
       break;
     case SYS_READ:
-      printf("9\n");
+      // printf("9\n");
       validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_read (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                          esp[THREE_ARG]);
       break;
     case SYS_WRITE:
-      printf("10\n");
+      // printf("10\n");
       validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_write (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                           esp[THREE_ARG]);
       break;
     case SYS_SEEK:
-      printf("11\n");
+      // printf("11\n");
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       sys_seek (esp[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_TELL:
-      printf("12\n");
+      // printf("12\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_tell (esp[ONE_ARG]);
       break;
     case SYS_CLOSE:
-      printf("13\n");
+      // printf("13\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_close (esp[ONE_ARG]);
       break;
     case SYS_MMAP:
-      printf("14\n");
+      // printf("14\n");
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
       break;
     case SYS_MUNMAP:
-      printf("15\n");
+      // printf("15\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_munmap (esp[ONE_ARG]);
       break;
     default:
-      printf("1\n");
+      // printf("1\n");
       sys_exit (-1);
     }
 }
@@ -664,6 +654,7 @@ allocate_fd (void)
   return fd;
 }
 
+
 static mapid_t
 allocate_mapid (void)
 {
@@ -676,6 +667,7 @@ allocate_mapid (void)
 
   return mapid;
 }
+
 /* Given an fd, finds the file pointer through the current process's open
    file list. */
 static struct fd_to_file *

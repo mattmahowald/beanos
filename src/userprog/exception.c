@@ -112,9 +112,7 @@ kill (struct intr_frame *f)
     }
 }
 
-/* Page fault handler.  This is a skeleton that must be filled in
-   to implement virtual memory.  Some solutions to project 2 may
-   also require modifying this code.
+/* Page fault handler. 
 
    At entry, the address that faulted is in CR2 (Control Register
    2) and information about the fault, formatted as described in
@@ -122,7 +120,13 @@ kill (struct intr_frame *f)
    example code here shows how to parse that information.  You
    can find more information about both of these in the
    description of "Interrupt 14--Page Fault Exception (#PF)" in
-   [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
+   [IA32-v3a] section 5.15 "Exception and Interrupt Reference". 
+
+   If the page fault is from user context, the handler atempts to
+   load in the page. If successful, the handler returns and 
+   re executes the command. If the page does not load and the fault
+   comes from a writable page, the handler attempts to grow the 
+   stack, returning and re executing on succes. */
 static void
 page_fault (struct intr_frame *f) 
 {
@@ -160,8 +164,6 @@ page_fault (struct intr_frame *f)
         return;
     }
 
-  page_validate (&thread_current ()->spt);
-
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
@@ -170,15 +172,6 @@ page_fault (struct intr_frame *f)
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-
-
-  // if user && not_present
-  //   check supplemental page table
-  //   if not in spt 
-  //       if write
-  //         check heuristic and expand stack
-  //   load and return
-
   kill (f);
 }
 

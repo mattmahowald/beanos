@@ -54,11 +54,11 @@ struct spte
   uint32_t *pd;                 /* Page directory for the spte's thread. */
   enum page_location location;  /* Location of the frame. */
   void *vaddr;                  /* User virtual address. */
-  struct frame *frame;                  /* Kernel virtual address. */
+  struct frame *frame;          /* Kernel virtual address. */
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
-  swapid_t swapid;
-  struct lock spte_lock;
+  swapid_t swapid;              /* Swap ID for pages written to the swap. */
+  struct lock spte_lock;        /* Lock for each virtual page. */
 };
 
 
