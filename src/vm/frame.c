@@ -70,7 +70,7 @@ evict ()
       		f->pinned = true;	
 		      lock_release (&used_lock);
 		      page_unload (f->spte);
-		      lock_release (f->spte->spte_lock);
+		      lock_release (&f->spte->spte_lock);
 		      f->spte = NULL;
 		      return f;
 		    }
@@ -120,8 +120,6 @@ void
 frame_free (struct frame *f)
 {
 	lock_acquire (&used_lock);
-	// TODO remember this is somewhat qracy
-	ASSERT (!f->pinned);
 	list_remove (&f->elem);
 	lock_release (&used_lock);
 	lock_acquire (&free_lock);
