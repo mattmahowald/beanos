@@ -54,7 +54,7 @@ evict ()
   if (clock_hand == NULL)
   	clock_hand = list_begin (&frame_used_list);
 
-  /* TODO This doesn't make any sense anymore*/
+  /* TODO This doesn't make any sense anymore. */
   if (clock_hand == list_end (&frame_used_list))
   	return NULL;
 
@@ -63,6 +63,7 @@ evict ()
   	{
       struct frame *f = list_entry (clock_hand, struct frame, elem);
 			
+			lock_acquire (&f->spte->spte_lock);
 			if (!f->pinned && !pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
       	{
 
@@ -71,9 +72,9 @@ evict ()
 		      page_unload (f->spte);
 		      return f;
 		    }
-
       if (!f->pinned && pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
       		pagedir_set_accessed (f->spte->pd, f->spte->vaddr, false);
+			lock_release (&f->spte->spte_lock);
 
   		clock_hand = list_next (clock_hand);
   		if (clock_hand == list_end (&frame_used_list))
@@ -117,7 +118,7 @@ void
 frame_free (struct frame *f)
 {
 	lock_acquire (&used_lock);
-	// TODO remember this is somewhat racy
+	// TODO remember this is somewhat qracy
 	ASSERT (!f->pinned);
 	list_remove (&f->elem);
 	lock_release (&used_lock);

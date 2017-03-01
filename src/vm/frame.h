@@ -10,7 +10,7 @@
 
 /* Frame Table
 
-	 The frame struct holds the information */
+	 The frame struct holds the information to get, free, evict, */
 
 struct frame 
 {

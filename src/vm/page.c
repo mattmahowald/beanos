@@ -75,7 +75,7 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
 
   /* If the page must not be loaded lazily, load a frame into the page. */
   if (!lazy)
-    page_load (vaddr);
+    page_load (vaddr, !PIN);
 }
 
 /* Find the spte that corresponds to addr. */
@@ -136,7 +136,7 @@ page_remove_spte (void *vaddr)
 
 /* Loads a frame into the virtual address VADDR, */
 bool 
-page_load (void *vaddr)
+page_load (void *vaddr, bool pin)
 {
   /* Lookup vaddr in supplementary page table. */
   vaddr = round_to_page (vaddr);
@@ -148,8 +148,12 @@ page_load (void *vaddr)
     return false;
 
   lock_acquire (&spte->spte_lock);
-  ASSERT (spte->frame == NULL)
-
+  if (spte->frame != NULL)
+    {
+      spte->frame->pinned = pin;
+      lock_release (&spte->spte_lock);
+      return true;
+    }
   // NOTE: if swap is full, frame will panic
   /* Allocate a frame for the virtual page. */
   spte->frame = frame_get ();
@@ -188,7 +192,7 @@ page_load (void *vaddr)
   /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
-  spte->frame->pinned = false;
+  spte->frame->pinned = pin;
   lock_release (&spte->spte_lock);
   return true;
 }
@@ -197,7 +201,6 @@ void
 page_unload (struct spte *spte)
 {
   /* Don't want previous owner to try and edit during unload */
-  lock_acquire (&spte->spte_lock);
   pagedir_clear_page (spte->pd, spte->vaddr);  
   switch (spte->location)
     {
@@ -205,18 +208,14 @@ page_unload (struct spte *spte)
       if (pagedir_is_dirty (spte->pd, spte->vaddr))
         {
           syscall_acquire_filesys_lock ();
-          PANIC ("WHY ARE WE EVER HERE");
-          // TODOOOOOOOOOOOOOOO 
-          // file_seek (spte->file_data.file, spte->file_data.ofs);
-          // int write = file_write (spte->file_data.file, spte->frame->paddr, spte->file_data.read);
+          file_seek (spte->file_data.file, spte->file_data.ofs);
+          int write = file_write (spte->file_data.file, spte->frame->paddr, 
+                                  spte->file_data.read);
           syscall_release_filesys_lock ();
 
-          // if (write != (int) spte->file_data.read)
-          // {
-            // I think this is happening because we haven't started pinning things yet
-            // TODO I'm not really sure what to do here.
-            // PANIC ("Could not write back to disk. Wanted to write %d, wrote %d", spte->file_data.read, write);
-          // }
+          if (write != (int) spte->file_data.read)
+            PANIC ("Could not write back to disk. Wanted to write %d, \
+                    wrote %d", spte->file_data.read, write);
         }
       break;
     case EXEC:
@@ -299,6 +298,7 @@ page_validate (struct hash *spt)
       switch (spte->location) 
         {
         case (DISK) : loc = "DISK"; break;
+        case (EXEC) : loc = "EXEC"; break;
         case (SWAP) : loc = "SWAP"; break;
         case (ZERO) : loc = "ZERO"; break;
         default     : loc = "UNKN";

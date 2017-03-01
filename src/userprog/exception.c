@@ -158,7 +158,7 @@ page_fault (struct intr_frame *f)
 
   if (user && not_present) 
     {
-      if (page_load (fault_addr))
+      if (page_load (fault_addr, !PIN))
         return;
       else if (write && page_extend_stack (fault_addr, f->esp))
         return;

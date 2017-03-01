@@ -68,8 +68,7 @@ validate_string (const char *string)
       if (!page)
         sys_exit (-1);
 
-      if (!page->frame)
-        page_load ((void *)cur_addr);
+      page_load ((void *)cur_addr, !PIN);
 
       while (cur_addr++ % PGSIZE != 0)
         if (*(char *) cur_addr == '\0')
@@ -119,11 +118,7 @@ load_and_pin (void *vaddr, size_t size)
 
   while (cur_addr <= end) 
     {
-      struct spte *page = page_get_spte (cur_addr);
-      if (!page->frame)
-        page_load (cur_addr);
-      // TODO this is racy
-      page->frame->pinned = true;
+      page_load (cur_addr, PIN);
       cur_addr += PGSIZE;
     } 
 }
