@@ -255,24 +255,53 @@ below PHYS_BASE and above the stack pointer.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+typedef int mapid_t;               /* Unique identifier for mmapped files. */
+
+struct mmapped_file
+  {
+    struct list_elem elem;         /* List elem. */
+    mapid_t id;                    /* Identifier (similar to fd). */
+    void *start_vaddr;             /* Start of mmapped zone. */
+    void *end_vaddr;               /* End of mmapped zone. */
+    struct file *file;             /* File mmapped. */
+  };  
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
+To mmap a file to a process's virtual address space, we add a page for each
+PGSIZE chunk of the file into that process's supplemental page table. These
+pages are loaded lazily, and uniquely identified with the DISK location. 
 
+Pages located on DISK (i.e., mmapped addresses) are loaded on a page fault
+just as we would load pages from the executable file (identified with the EXEC
+location). This loading occurs with calls to file_read from the file data 
+that is stored in each supplemental page table entry. Pages in SWAP are read
+from the swap disk (abstracted to swap.h) and ZERO'd pages (new stack pages) 
+are simply memset to 0.
+
+While mmapped pages (in DISK) are loaded more like pages in EXEC, they are
+evicted quite differently. Evicted pages are unloaded in our page_unload 
+function, which switches based on location. If the user page is dirty (i.e. 
+the process has edited the mmapped file), that page is written back to the 
+originally mapped file using the same file data stored in the SPTE that was 
+originally used to load that user page. Dirty EXEC pages are written to swap
+(and their location is changed to SWAP) and dirty SWAP pages (i.e. were loaded
+from swap) are likewise written back to swap. Dirty ZERO pages are written to 
+swap (and location also changed to SWAP).
 
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
 
-+++ This is kinda fucked. We need to free all the spte pages.
-
-mmap takes a user virtual address as part of the system call, then
-determines the length of the file. From there, mmap iterates over the
-pages to be mapped into memory, each time checking to see if a spte
-for the current thread exists. If it does, then there is overlap, and 
-the system call returns MAP_FAILED.
+Our implementation of mmap iterates through the supplied virtual buffer in 
+PGSIZE increments. Before adding a new mmapped page to the mapping process's
+supplemental page table, we check to see if the SPT already has a page at that
+virtual address space. If it does, then there is overlap, so we first remove 
+any already-added SPTEs associated with the mmap call in question and return
+MAP_FAILED.
 
 ---- RATIONALE ----
 
@@ -282,6 +311,8 @@ the system call returns MAP_FAILED.
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+We 
 
                SURVEY QUESTIONS
                ================
