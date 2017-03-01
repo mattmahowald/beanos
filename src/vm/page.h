@@ -7,6 +7,7 @@
 #include "filesys/file.h"
 #include "userprog/pagedir.h"
 #include "vm/swap.h"
+#include "threads/synch.h"
 
 #define LAZY true
 #define WRITABLE true
@@ -57,6 +58,7 @@ struct spte
   struct spte_file file_data;   /* File information. */
   bool writable;                /* Process has read-write privileges. */
   swapid_t swapid;
+  struct lock spte_lock;
 };
 
 

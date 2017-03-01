@@ -66,6 +66,7 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   spte->frame = NULL;
   spte->writable = writable;
   spte->file_data = file_data;
+  lock_init (&spte->spte_lock);
   /* Insert the spte into the spt, panicking on fail. */
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
   if (e != NULL)
@@ -118,6 +119,8 @@ page_remove_spte (void *vaddr)
     return;
 
   /* Free frame if it exists. */
+  
+  // TODO potentially racy
   if (found->frame != NULL)
     frame_free (found->frame);
 
@@ -143,6 +146,7 @@ page_load (void *vaddr)
   if (spte == NULL)
     return false;
 
+  lock_acquire (&spte->spte_lock);
   ASSERT (spte->frame == NULL)
 
   // NOTE: if swap is full, frame will panic
@@ -163,6 +167,7 @@ page_load (void *vaddr)
 
       if (read != (int) spte->file_data.read)
         { 
+          spte->frame->pinned = false;
           page_remove_spte (spte->vaddr);
           return false; 
         }
@@ -182,20 +187,24 @@ page_load (void *vaddr)
   /* Point the pagedir for the current thread to the appropriate frame. */
   pagedir_set_page (thread_current ()->pagedir, vaddr, spte->frame->paddr, 
                     spte->writable);
-  // TODO unsure if we actually need to do this (GET RID).
-  // pagedir_set_dirty (thread_current ()->pagedir, vaddr, false);
+  spte->frame->pinned = false;
+  lock_release (&spte->spte_lock);
   return true;
 }
 
 void
 page_unload (struct spte *spte)
 {
+  /* Don't want previous owner to try and edit during unload */
+  lock_acquire (&spte->spte_lock);
+  pagedir_clear_page (spte->pd, spte->vaddr);  
   switch (spte->location)
     {
     case DISK:
       if (pagedir_is_dirty (spte->pd, spte->vaddr))
         {
           syscall_acquire_filesys_lock ();
+          PANIC ("WHY ARE WE EVER HERE");
           // TODOOOOOOOOOOOOOOO 
           // file_seek (spte->file_data.file, spte->file_data.ofs);
           // int write = file_write (spte->file_data.file, spte->frame->paddr, spte->file_data.read);
@@ -224,7 +233,7 @@ page_unload (struct spte *spte)
       break;
     }
   spte->frame = NULL;
-  pagedir_clear_page (spte->pd, spte->vaddr);
+  lock_release (&spte->spte_lock);
 }
 
 /* Cleanup the supplementary page table. */
@@ -265,7 +274,10 @@ free_spte (struct hash_elem *e, void *aux UNUSED)
         page_unload (entry);
       frame_free (f);
     }
-
+  else if (entry->location == SWAP)
+    {
+      swap_read_page (NULL, entry->swapid);
+    }  
   // TODO remove from swap
 
   free (entry);

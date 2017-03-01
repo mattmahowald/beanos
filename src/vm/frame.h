@@ -15,6 +15,7 @@ struct frame {
     struct spte *spte;
     struct list_elem elem;
     bool pinned;
+    bool loaded;
 };
 
 /* Array and 8iju*/

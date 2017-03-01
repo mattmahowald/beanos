@@ -15,8 +15,11 @@ static struct lock free_lock;
 static struct lock used_lock;
 static struct list frame_free_list;
 static struct list frame_used_list;
+static struct list_elem *clock_hand;
+
 
 static struct frame * evict (void);
+
 
 void 
 frame_init ()
@@ -37,61 +40,70 @@ frame_init ()
 			f->pinned = false;
 			list_push_back (&frame_free_list, &f->elem);
 		}
+	clock_hand = NULL;
 }
 
 static struct frame *
 evict ()
 {
-	struct list_elem *e;
 	lock_acquire (&used_lock);
-  for (e = list_begin (&frame_used_list); e != list_end (&frame_used_list);
-       e = list_next (e))
-    {
-      struct frame *f = list_entry (e, struct frame, elem);
-      if (pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
-      	{
-      		pagedir_set_accessed (f->spte->pd, f->spte->vaddr, false);
-      		continue;
-      	}
-      // if not pinned
-      if (!f->pinned)
+  
+  if (clock_hand == NULL)
+  	clock_hand = list_begin (&frame_used_list);
+
+  if (clock_hand == list_end (&frame_used_list))
+  	return false;
+
+  struct list_elem *start = clock_hand;
+  do
+  	{
+      struct frame *f = list_entry (clock_hand, struct frame, elem);
+			
+			if (!f->pinned && !pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
       	{
       		f->pinned = true;	
-      		page_unload (f->spte);
-					list_remove (&f->elem);
-					lock_release (&used_lock);
-      		f->pinned = false;
-      		return f;
-      	}	
+		      lock_release (&used_lock);
+		      page_unload (f->spte);
+		      return f;
+		    }
 
-    }
+      if (!f->pinned && pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
+      		pagedir_set_accessed (f->spte->pd, f->spte->vaddr, false);
+
+  		clock_hand = list_next (clock_hand);
+  		if (clock_hand == list_end (&frame_used_list))
+  			clock_hand = list_begin (&frame_used_list); 	
+  	} 
+  while (clock_hand != start);
+
   lock_release (&used_lock);
   return NULL;
 }
 
 // SYNCH
+// FRAME GET returns a pinned frame
 struct frame *
 frame_get ()
 {
 	struct frame *f = NULL;
-	lock_acquire (&free_lock);	
-	if (list_empty (&frame_free_list))
+	while (!f)
 		{
+			lock_acquire (&free_lock);
+			if (!list_empty (&frame_free_list))
+				{
+					struct list_elem *e = list_pop_front (&frame_free_list);
+					lock_release (&free_lock);
+					f = list_entry (e, struct frame, elem);
+					f->pinned = true;
+					lock_acquire (&used_lock);
+					list_push_back (&frame_used_list, &f->elem);
+					lock_release (&used_lock);
+					continue;
+				}
 			lock_release (&free_lock);
-			while (!f)
-				f = evict ();
-		}
-	else
-		{
-			struct list_elem *e = list_pop_front (&frame_free_list);
-			lock_release (&free_lock);
-
-			f = list_entry (e, struct frame, elem);
+			f = evict ();
 		}
 
-	lock_acquire (&used_lock);
-	list_push_back (&frame_used_list, &f->elem);
-	lock_release (&used_lock);
 	ASSERT (f);
 	return f;
 }
