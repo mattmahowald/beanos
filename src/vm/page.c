@@ -225,11 +225,12 @@ void
 page_unload (struct spte *spte)
 {
   /* Don't want previous owner to try and edit during unload */
+  bool dirty = pagedir_is_dirty (spte->pd, spte->vaddr);
   pagedir_clear_page (spte->pd, spte->vaddr);  
   switch (spte->location)
     {
     case DISK:
-      if (pagedir_is_dirty (spte->pd, spte->vaddr))
+      if (dirty)
         {
           syscall_acquire_filesys_lock ();
           file_seek (spte->file_data.file, spte->file_data.ofs);
@@ -243,7 +244,7 @@ page_unload (struct spte *spte)
         }
       break;
     case EXEC:
-      if (pagedir_is_dirty (spte->pd, spte->vaddr))
+      if (dirty)
         {
           spte->swapid = swap_write_page (spte->frame->paddr);
           spte->location = SWAP;
