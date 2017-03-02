@@ -68,8 +68,12 @@ page_add_spte (enum page_location loc, void *vaddr, struct spte_file file_data,
   spte->writable = writable;
   spte->file_data = file_data;
   lock_init (&spte->spte_lock);
+
   /* Insert the spte into the spt, panicking on fail. */
   struct hash_elem *e = hash_insert (&thread_current ()->spt, &spte->elem);
+  
+  /* This should never occur, as we check address validity before attempting
+     to create SPT entry. */
   if (e != NULL)
     PANIC ("Element at address 0x%" PRIXPTR " already in table", 
            (uintptr_t) vaddr);
@@ -106,6 +110,8 @@ page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
   return true;
 }
 
+/* Handles any user data on page deletion. If loaded and dirty, unloads 
+   appropriately. If in swap, frees that swap memory. */
 static void
 clear_user_data (struct spte *entry)
 {
@@ -113,7 +119,7 @@ clear_user_data (struct spte *entry)
   if (entry->frame != NULL)
     {      
       struct frame *f = entry->frame;
-      
+      /* Pin so that frame won't be evicted during unloading. */
       f->pinned = true;
       if (entry->location == DISK)
         page_unload (entry);
@@ -197,6 +203,7 @@ page_load (void *vaddr, bool pin)
       if (read != (int) spte->file_data.read)
         { 
           spte->frame->pinned = false;
+          lock_release (&spte->spte_lock);
           page_remove_spte (spte->vaddr);
           return false; 
         }
@@ -239,8 +246,7 @@ page_unload (struct spte *spte)
           syscall_release_filesys_lock ();
 
           if (write != (int) spte->file_data.read)
-            PANIC ("Could not write back to disk. Wanted to write %d, \
-                    wrote %d", spte->file_data.read, write);
+            sys_exit (-1);
         }
       break;
     case EXEC:
@@ -284,28 +290,4 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct spte *b = hash_entry (b_, struct spte, elem);
 
   return a->vaddr < b->vaddr;
-}
-
-// TODO remove
-void
-page_validate (struct hash *spt)
-{
-  struct hash_iterator i;
-  int idx = 1;
-  hash_first (&i, spt);
-  while (hash_next (&i))
-    {
-      struct spte *spte = hash_entry (hash_cur (&i), struct spte, elem);
-      char *loc;
-      switch (spte->location) 
-        {
-        case (DISK) : loc = "DISK"; break;
-        case (EXEC) : loc = "EXEC"; break;
-        case (SWAP) : loc = "SWAP"; break;
-        case (ZERO) : loc = "ZERO"; break;
-        default     : loc = "UNKN";
-        }
-      printf ("PAGE TABLE ENTRY %d in %s\nVirtual Address  %p\nPhysical Address %p\nis %swritable\n\n", 
-              idx++, loc, spte->vaddr, spte->frame->paddr, spte->writable ? "" : "not ");
-    }
 }
