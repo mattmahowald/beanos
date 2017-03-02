@@ -94,44 +94,43 @@ struct lock used_lock;          /* Used to sync frame_used_list. */
 
 ---- ALGORITHMS ----
 
->> A2: In a few paragraphs, describe your code for locating the frame,
->> if any, that contains the data of a given page.
+>> A2: In a few paragraphs, describe your code for accessing the data
+>> stored in the SPT about a given page.
 
 Our implementation leveraged the supplementary page table to store the
 information for the location of the frame. This boils down to two main
 page.c functions: page_load and page_unload. There are two cases: First,
 the frame could already be loaded, in which case the page_get_spte call
-will return a spte pointer with a non-NULL frame address. In the case 
-that the frame is NULL, page_load brings the page in from a number of
-possible locations. In all cases, a call to frame_get insures an unused 
-or evicted frame to which the kernel writes the located data.
+will return a spte pointer with a non-NULL frame address. Done. 
+
+In the case that the frame is NULL, page_load brings the page in from a 
+number of possible locations. In all cases, a call to frame_get ensures 
+an unused or evicted frame to which the kernel writes the located data.
 
 1) The frame could be on DISK (includes the EXEC enum case). In this case,
    our implementation reads the data back into the newly populated spte's
    frame. The information of where to read from is stored in the spte_file
    struct, which is loaded in on creation of the spte. One consideration is
-   writing back dirtied pages, which is handled in page_unload +++MAYBE 
-   EXPAND+++
+   writing back dirtied pages, which is handled in page_unload.
 2) The frame could be evicted and written to the swap partition. This case
    leverages our swap api, which reads the memory corresponding to the 
    swapid stored in the spte using the devices/block.c block_read call.
-3) In the final case, the page_load function is called from our page_grow_
-   stack function, which requests a zero'd out page. This memsets the frame
-   to all 0s.
+3) In the final case, the page_load function is called from growing or
+   initializing the stack, which requests a zero'd out page. This memsets 
+   the frame to zeroes.
 
 Finally, page_load updates the pagedir for the current thread so that the
 MMU contains the correct mapping of virtual address to physical address.
+
+page_unload (as described below +++ WHERE +++ ), does the work to maintain
+an accurate spte for a given virtual address.
 
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
 
-I believe:
-We avoid the issue entirely by keeping the supplementary page table as
-a per-process table.
-
-I believe we only use the supplied user virtual addresses in the kernal. Also, 
-we still use palloc for kernel memery (i.e. no spte stuff)
+We avoid the issue by using only the supplied user virtual addresses in the 
+kernel.
 
 ---- SYNCHRONIZATION ----
 
@@ -147,7 +146,15 @@ prevents any other process from accessing the frame free list. If the list is
 not empty, the first free frame is popped before releasing the lock. Thus, the
 free list will always remain intact.
 
-If no frame is free, a process releases the free_lock and 
+If no frame is free, a process releases the free_lock and begins the eviction
+process, the first step being acquiring a lock on the used frame list called
+used_lock. Subsequently, we follow the eviction policy described in B2 with
+synch details included.
+
+Finally, this is all done in a while loop. The algorithm tries the free list,
+then tries to evict, then repeats. This avoids the issue of the system 
+freeing all pages inbetween one process's attempt to find a frame in the
+free list, then attempt to evict. 
 
 ---- RATIONALE ----
 
@@ -158,8 +165,6 @@ For the spt of each thread, we created a hash table to map the user virtual
 addresses to the spte and frame structs. This allowed us to achieve constant 
 time lookup of virtual addresses' data. The only time we need to iterate over
 the spt is in cleanup.
-
-+++ We could do a free list and the a used array. +++
 
 For our frame data structure, we decided to use two lists: a free list and
 a used list. The free list is an auxiliary structure that is populated in 
@@ -195,7 +200,7 @@ static struct lock used_lock;
 static struct list frame_free_list;
 static struct list frame_used_list;
 
-/* 
+/* List element used to keep a persistent clock hand among evictions. */
 static struct list_elem *clock_hand;
 
 ---- ALGORITHMS ----
@@ -203,28 +208,35 @@ static struct list_elem *clock_hand;
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
-We use the two-hand clock cycle algorithm. Two global references to 
-used frame list elements iterate over the used list, the first setting
-the accesssed bit to false, the second evicting the first frame 
-encountered with an accessed bit set to false. 
+We use the one-hand clock cycle algorithm. One global reference to a
+used frame list element iterates over the used list, evicting if accessed
+is set to false or setting the bit to false if it is true. 
 
 To keep processes from evicting the same frame, we used a lock on the 
 frame table (specifically the used frame list). This lock is acquired
-and held while our eviction algorithm selects a frame. The two clock hand
-references are guarded by this lock.
+and held while our eviction algorithm selects a frame. The clock hand
+reference is guarded by this lock.
 
 As described in B8, we use a pinned flag to avoid evicting frames that
 are referenced by other threads in the process of loading a page or
 using frame data in a call to sys_read or sys_write.
 
+Finally, as described in B5, we use a lock per spte, which must be acquired
+to atomically test if the eviction algorithm can and subsequently evict a 
+frame. We avoided the issue of deadlock here, as described in B5.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
-Our spte keeps track of the pagedir of its owner thread. Then, when a process
+Our spte keeps track of the pagedir of its owner thread. When a process
 P evicts a page belonging to Q, P can clear the virtual address from Q's
 pagedir through the spte. Additionally, when a page is swapped, we keep 
 track of the swap id and update the spte's location to SWAP.
+
+This causes Q to page fault on the virtual addresses mapped to that frame.
+One big consideration is synchronization between these two processes (see
+)
 
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
@@ -246,9 +258,33 @@ below PHYS_BASE and above the stack pointer.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
-- System-wide data has a coarse lock (frame table and swap table.)
+We use three main synchronization tools: a coarse lock on the frame table,
+fine locks on every spte entry, and a pinning flag within each frame struct. 
+The potential for deadlock arises in a couple of cases:
 
-- spte locks only can be acquired by eviction and page faulting back in.
+1) process P loads a frame that process Q is trying to evict. This is the
+case that is detailed in B7. The case for deadlock arises if process P 
+acquires its own spte_lock, process Q acquires the used_lock, then process
+P attempts to acquire the used_lock while Q attempts to get the spte_lock.
+We avoid this case by releasing the lock if P's current spte has a non-NULL
+frame.
+
+If, on the other hand, P's current spte has no frame, P will call frame_get,
+which may try to acquire the used_lock in evict. This is not an issue, 
+however, as Q will never try to evict P's current page's frame, as it does
+not exist. P will simply wait for Q to finish.
+
+2) two processes are evicting and freeing respectively the same frame. If a 
+process determines to evict a frame, and then the owner of that frame exits, 
+we pin the frame during the resource cleanup while holding the spte lock. 
+This keeps the frame from being chosen to be evicted, or evicts it entirely 
+before freeing the resources. If we did not do this, process P could choose 
+to evict the frame owned by Q, P could get swapped off for Q before evicting 
+the frame, then Q could die and try to free the frame. P holds the frame table 
+lock; Q holds the spte lock. Q attempts to acquire the frame table lock; P 
+attempts to acquire the spte lock. Deadlock. By pinning, we safely release the 
+spte lock before freeing the frame, knowing that our clock algorithm will not
+evict the pinned frame.
 
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
@@ -268,7 +304,11 @@ before the frame is loaded back in, avoiding race conditions.
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
-Mixture of B6 and B8? Not sure.
+P acquires its own spte_lock while loading and sets its pinned flag to true.
+This keeps its frame from being evicted by Q, as Q must acquire the held
+spte_lock before evicting. Q can evict once P has finished loading.
+
+There is a possibility for deadlock addressed in question B5.1.
 
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
@@ -300,7 +340,7 @@ loading has run to completion.
 Our implementation uses a lock for every spte as described. This is as
 fine-grained as we could implement, as it allows for processes to evict and 
 page fault in concurrently on different pages seamlessly. Selecting a frame 
-to evict,on the other hand, requires a coarse lock over the entire frame 
+to evict, on the other hand, requires a coarse lock over the entire frame 
 table, as two processes cannot elect to evict the same frame. 
 
              MEMORY MAPPED FILES
