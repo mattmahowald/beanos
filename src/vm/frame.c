@@ -61,47 +61,49 @@ evict ()
   	clock_hand = list_begin (&frame_used_list);
   struct list_elem *start = clock_hand;
 
-	/* TODO This doesn't make any sense anymore. */
-	if (clock_hand == list_end (&frame_used_list))
-		return NULL;
-
   /* Iterate over every frame in the used list to choose one to evict. */
   do
   	{
       struct frame *f = list_entry (clock_hand, struct frame, elem);
 			
 			/* Atomically test that we can evict and then evict the frame. */
-			lock_acquire (&f->spte->spte_lock);
-			if (!f->pinned && !pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
+			
+			struct spte *spte = f->spte;
+			lock_acquire (&spte->spte_lock);
+			if (!f->pinned && !pagedir_is_accessed (spte->pd, spte->vaddr))
       	{
-      		/* Pin the frame to ensure no other process will evict this 
-      			 frame. */
-      		f->pinned = true;	
-
       		/* Release the lock, as a frame has been selected. No other process
       			 can evict this frame due to the pinned flag, so another process
       			 can search for another frame to evict. */
+      		clock_hand = list_next (clock_hand);
+  				if (clock_hand == list_end (&frame_used_list))
+  					clock_hand = list_begin (&frame_used_list); 
+      		
+      		list_remove (&f->elem);
 		      lock_release (&used_lock);
-		      page_unload (f->spte);
-		      lock_release (&f->spte->spte_lock);
+		      page_unload (spte);
+		      
+		      lock_release (&spte->spte_lock);
 					f->spte = NULL;
 		      return f;
 		    }
 
 		  /* Set the accessed bit to false if true. */
-      if (!f->pinned && pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
-      	pagedir_set_accessed (f->spte->pd, f->spte->vaddr, false);
-			lock_release (&f->spte->spte_lock);
-
+      if (!f->pinned && pagedir_is_accessed (spte->pd, spte->vaddr))
+      	pagedir_set_accessed (spte->pd, spte->vaddr, false);
+			
+			lock_release (&spte->spte_lock);
 			/* Tick clock. */
+
   		clock_hand = list_next (clock_hand);
   		if (clock_hand == list_end (&frame_used_list))
-  			clock_hand = list_begin (&frame_used_list); 	
+  			clock_hand = list_begin (&frame_used_list);
   	} 
+
   /* Only cycle the clock once to check if any frames have been freed. */
   while (clock_hand != start);
-
   lock_release (&used_lock);
+
   return NULL;
 }
 
@@ -122,10 +124,6 @@ frame_get ()
 					struct list_elem *e = list_pop_front (&frame_free_list);
 					lock_release (&free_lock);
 					f = list_entry (e, struct frame, elem);
-					f->pinned = true;
-					lock_acquire (&used_lock);
-					list_push_back (&frame_used_list, &f->elem);
-					lock_release (&used_lock);
 					continue;
 				}
 			lock_release (&free_lock);
@@ -133,6 +131,12 @@ frame_get ()
 			/* No free fame available. Evict a used frame. */
 			f = evict ();
 		}
+
+	/* Pin the frame to ensure no other process will evict this frame. */
+	f->pinned = true;
+	lock_acquire (&used_lock);
+	list_push_back (&frame_used_list, &f->elem);
+	lock_release (&used_lock);
 
 	return f;
 }
