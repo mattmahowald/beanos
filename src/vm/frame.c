@@ -44,7 +44,7 @@ frame_init ()
 	clock_hand = NULL;
 }
 
-/* Atomically selects a frame to evict using a two-hand clock algorithm,
+/* Atomically selects a frame to evict using a basic clock algorithm,
 	 ignoring pages that have been pinned. */
 static struct frame *
 evict ()
@@ -70,6 +70,8 @@ evict ()
       		f->pinned = true;	
 		      lock_release (&used_lock);
 		      page_unload (f->spte);
+		      lock_release (&f->spte->spte_lock);
+		      f->spte = NULL;
 		      return f;
 		    }
       if (!f->pinned && pagedir_is_accessed (f->spte->pd, f->spte->vaddr))
@@ -118,8 +120,6 @@ void
 frame_free (struct frame *f)
 {
 	lock_acquire (&used_lock);
-	// TODO remember this is somewhat qracy
-	ASSERT (!f->pinned);
 	list_remove (&f->elem);
 	lock_release (&used_lock);
 	lock_acquire (&free_lock);

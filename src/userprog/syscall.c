@@ -424,12 +424,48 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
+static bool
+mmap_file (uint8_t *start_addr, size_t file_len, struct file *file)
+{
+  size_t bytes_mapped, bytes_to_map, file_bytes, zero_bytes;
+
+  bytes_to_map = file_len;
+  uint8_t *next_page = start_addr;
+  bytes_mapped = 0;
+  while (bytes_mapped <= file_len)
+    {
+      file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
+      zero_bytes = PGSIZE - file_bytes;
+      /* Make sure file will not overwrite existing segments. */
+      if (page_get_spte (next_page))
+        {
+          while (next_page != start_addr)
+            {
+              next_page -= PGSIZE;
+              page_remove_spte (next_page);              
+            }
+          return false;
+        }
+
+      struct spte_file file_data;
+      file_data.file = file;
+      file_data.ofs = (off_t) bytes_mapped; 
+      file_data.read = file_bytes;
+      file_data.zero = zero_bytes;
+      page_add_spte (DISK, next_page, file_data, WRITABLE, LAZY);
+
+      bytes_mapped += PGSIZE;
+      bytes_to_map -= PGSIZE;
+      next_page += PGSIZE;
+    }
+  return true; 
+}
+
+
 static mapid_t 
 sys_mmap (int fd, void *addr)
 {
-  // TODO maybe decompose this a little bit
-  // TODO maybe turn file retreival into its own helper fn
-  size_t file_len, bytes_mapped, bytes_to_map, file_bytes, zero_bytes;
+  size_t file_len;
 
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   file_len = sys_filesize (fd);
@@ -442,36 +478,8 @@ sys_mmap (int fd, void *addr)
   struct file *file_to_map = file_reopen (f->f);
   syscall_release_filesys_lock ();
 
-  uint8_t *next_page = addr;
-  bytes_mapped = 0;
-  bytes_to_map = file_len;
-  while (bytes_mapped <= file_len)
-    {
-      file_bytes = (bytes_to_map > PGSIZE) ? PGSIZE : bytes_to_map;
-      zero_bytes = PGSIZE - file_bytes;
-      /* Make sure file will not overwrite existing segments. */
-      if (page_get_spte (next_page))
-        {
-          // maybe instead return map_failed .. but then free what you already did? fuck
-          while (next_page != addr)
-            {
-              next_page -= PGSIZE;
-              page_remove_spte (next_page);              
-            }
-          return MAP_FAILED;
-        }
-
-      struct spte_file file_data;
-      file_data.file = file_to_map;
-      file_data.ofs = (off_t) bytes_mapped; 
-      file_data.read = file_bytes;
-      file_data.zero = zero_bytes;
-      page_add_spte (DISK, next_page, file_data, WRITABLE, LAZY);
-
-      bytes_mapped += PGSIZE;
-      bytes_to_map -= PGSIZE;
-      next_page += PGSIZE;
-    }
+  if (!mmap_file (addr, file_len, file_to_map))
+    return MAP_FAILED;
 
   struct mmapped_file *mf = malloc (sizeof *mf);
   if (mf == NULL)
@@ -490,22 +498,17 @@ void
 syscall_unmap (struct mmapped_file *mf)
 {
   uint8_t *next_page = mf->start_vaddr;
-  while (next_page < (uint8_t *) mf->end_vaddr)
+  while (next_page <= (uint8_t *) mf->end_vaddr)
     {
-      struct spte *page = page_get_spte (next_page);
-      if (page->frame)
-        {
-          if (pagedir_is_dirty (thread_current ()->pagedir, next_page))
-            {
-              syscall_acquire_filesys_lock ();
-              file_seek (page->file_data.file, page->file_data.ofs);
-              file_write (page->file_data.file, next_page, page->file_data.read);
-              syscall_release_filesys_lock ();
-            }
-        }
+      /* page_remove_spte will write back to disk if dirty. */      
       page_remove_spte (next_page);
       next_page += PGSIZE;
     }
+  syscall_acquire_filesys_lock ();
+  file_close (mf->file);
+  syscall_release_filesys_lock ();
+  list_remove (&mf->elem);
+  free (mf);
 }
 
 static void 
@@ -521,12 +524,6 @@ sys_munmap (mapid_t mapping)
       if (mf->id == mapping)
         {
           syscall_unmap (mf);
-          syscall_acquire_filesys_lock ();
-          file_close (mf->file);
-          syscall_release_filesys_lock ();
-          list_remove (mfile_e);
-          free (mf);
-
           return;
         }
     } 
