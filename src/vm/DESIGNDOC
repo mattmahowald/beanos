@@ -355,11 +355,13 @@ loading has run to completion.
 
 Our implementation uses a lock for every spte as described. This is as
 fine-grained as we could implement, as it allows for processes to evict and 
-page fault in concurrently on different pages seamlessly. Selecting a frame 
+page fault concurrently on different pages seamlessly. Selecting a frame 
 to evict, on the other hand, requires a coarse lock over the entire frame 
-table, as two processes cannot elect to evict the same frame. We never hold
-this frame table lock during IO operations, however. We simply pin the frame
-involved in the IO to ensure it remains in the frame table and is not evicted.
+table, as two processes cannot elect to evict the same frame, nor can they
+both use the same clock hand to iterate over the table. We never hold this
+frame table lock during IO operations, however. We simply pin the frame
+involved in the IO to ensure it remains in the frame table and is not 
+evicted.
 
 
              MEMORY MAPPED FILES
@@ -371,16 +373,16 @@ involved in the IO to ensure it remains in the frame table and is not evicted.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-typedef int mapid_t;               /* Unique identifier for mmapped files. */
+typedef int mapid_t;             /* Unique identifier for mmapped files. */
 
 struct mmapped_file
-  {
-    struct list_elem elem;         /* List elem. */
-    mapid_t id;                    /* Identifier (similar to fd). */
-    void *start_vaddr;             /* Start of mmapped zone. */
-    void *end_vaddr;               /* End of mmapped zone. */
-    struct file *file;             /* File mmapped. */
-  };  
+{
+  struct list_elem elem;         /* List elem. */
+  mapid_t id;                    /* Identifier (similar to fd). */
+  void *start_vaddr;             /* Start of mmapped zone. */
+  void *end_vaddr;               /* End of mmapped zone. */
+  struct file *file;             /* File mmapped. */
+};  
 
 ---- ALGORITHMS ----
 
