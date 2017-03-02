@@ -79,11 +79,12 @@ struct spte
 
 FRAME.H
 
-struct frame {
-    void *paddr;
-    struct spte *spte;
-    struct list_elem elem;
-    bool pinned;
+struct frame 
+{
+    void *paddr;              /* The kernel virtual address of the frame. */
+    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
+    struct list_elem elem;    /* List element for the used and free lists. */
+    bool pinned;              /* Pinned flag to keep frames from eviction. */
 };
 
 struct list frame_free_list;    /* Keeps track of free frames. */
@@ -198,11 +199,12 @@ See also A1.
 
 FRAME.H
 
-struct frame {
-    void *paddr;
-    struct spte *spte;
-    struct list_elem elem;
-    bool pinned;
+struct frame 
+{
+    void *paddr;              /* The kernel virtual address of the frame. */
+    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
+    struct list_elem elem;    /* List element for the used and free lists. */
+    bool pinned;              /* Pinned flag to keep frames from eviction. */
 };
 
 /* Locks to guard frame table operations. */
@@ -249,7 +251,6 @@ track of the swap id and update the spte's location to SWAP.
 
 Q's spte is locked as we update its field to reflect its eviction to ensure
 synchronization. It's frame value is set to NULL. 
-
 
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into

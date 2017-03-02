@@ -114,7 +114,7 @@ struct thread
     /* Virtual memory */
     struct hash spt;                    /* Supplementary page table. */
     struct list mmapped_files;          /* List of memory mapped files. */
-    void *esp;
+    void *esp;                          /* Stack pointer. */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

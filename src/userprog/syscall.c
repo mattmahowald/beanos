@@ -78,7 +78,8 @@ validate_string (const char *string)
 
 
 /* Helper function that validates the passed pointer as a legal, user
-   virtual space address. */
+   virtual space address.pintos -v -k -T 600 --qemu  --filesys-size=2 -p tests/vm/page-merge-par -a page-merge-par -p tests/vm/child-sort -a child-sort --swap-size=4 -- -q  -f run page-merge-par < /dev/null 2> tests/vm/page-merge-par.errors > tests/vm/page-merge-par.output
+perl -I../.. ../../tests/vm/page-merge-par.ck tests/vm/page-merge-par tests/vm/page-merge-par.result */
 static void
 validate_address (void *address, size_t size, bool writable)
 {
@@ -98,7 +99,8 @@ validate_address (void *address, size_t size, bool writable)
       struct spte *page = page_get_spte (cur_addr);
       if (!page)
         {
-          if (!(writable && page_extend_stack (cur_addr, thread_current ()->esp)))
+          if (!(writable && page_extend_stack (cur_addr, 
+                                               thread_current ()->esp)))
             sys_exit (-1); 
         }
       else 
@@ -110,6 +112,7 @@ validate_address (void *address, size_t size, bool writable)
     }
 }
 
+/* Load and pin pages corresponding to the passed VADDR and SIZE. */
 static void
 load_and_pin (void *vaddr, size_t size)
 {
@@ -123,6 +126,7 @@ load_and_pin (void *vaddr, size_t size)
     } 
 }
 
+/* Unpins pages corresponding to the passed VADDR and SIZE. */
 static void
 unpin (void *vaddr, size_t size)
 {
@@ -133,21 +137,6 @@ unpin (void *vaddr, size_t size)
     {
       struct spte *page = page_get_spte (cur_addr);
       page->frame->pinned = false;
-      cur_addr += PGSIZE;
-    } 
-}
-
-static void
-pinned (void *vaddr, size_t size)
-{
-  uint8_t *cur_addr = round_to_page (vaddr);
-  uint8_t *end = cur_addr + size - 1;
-
-  while (cur_addr <= end) 
-    {
-      struct spte *page = page_get_spte (cur_addr);
-      ASSERT (page->frame);
-      ASSERT (page->frame->pinned);
       cur_addr += PGSIZE;
     } 
 }
@@ -291,8 +280,8 @@ sys_filesize (int fd)
    to the passed in fd by first validating the buffer, then determining 
    if the fd is STDIN, in which case it reads from the keyboard, or STDOUT,
    in which case it exits with status -1. Finally, the function finds the 
-   file and reads into the passed in buffer, returning the number of bytes 
-   read. */
+   file and reads into the passed in buffer, first loading and pinning the 
+   pages associated with the buffer, returning the number of bytes read. */
 static int
 sys_read (int fd, void *buffer, unsigned size)
 { 
@@ -313,23 +302,18 @@ sys_read (int fd, void *buffer, unsigned size)
   if (fd == STDOUT_FILENO)
     sys_exit (-1);
 
-  /* Otherwise, find the file and read from it. */
+  /* Otherwise, find the file. */
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
-
   if (!fd_)
     sys_exit (-1); 
-  
-
   struct file *f = fd_->f;
   
+  /* Load the buffer to read into, pinned so that it won't be evicted. */
   load_and_pin (buffer, size);
-  
 
+  /* Read from the file. */
   syscall_acquire_filesys_lock ();
-  pinned (buffer, size);
   read = file_read (f, buffer, size);
-  pinned (buffer, size);
-
   syscall_release_filesys_lock (); 
 
   unpin (buffer, size);
@@ -343,8 +327,9 @@ sys_read (int fd, void *buffer, unsigned size)
    to the passed in fd by first validating the buffer, then determining 
    if the fd is STDOUT, in which case it writes to the console, or STDIN,
    in which case it exits with status -1. Finally, the function finds 
-   the file and writes to it from the passed in buffer, returning the 
-   number of bytes written. */
+   the file and writes to it from the passed in buffer, first loading and 
+   pinning the pages associated with the buffer, returning the number of 
+   bytes written. */
 static int
 sys_write (int fd, void *buffer, unsigned size)
 {
@@ -424,6 +409,7 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
+
 static bool
 mmap_file (uint8_t *start_addr, size_t file_len, struct file *file)
 {
@@ -461,7 +447,12 @@ mmap_file (uint8_t *start_addr, size_t file_len, struct file *file)
   return true; 
 }
 
+/* System call mmap(fd, addr) maps the file designated by fd into memory at 
+   start_addr ending at start_addr + file_len. The call iterates over the 
+   file, one page worth of bytes at a time, lazily adding the pages to the 
+   supplementary page table. 
 
+   If the */
 static mapid_t 
 sys_mmap (int fd, void *addr)
 {

@@ -8,13 +8,14 @@
 
 #define SECTORS_PER_PAGE PGSIZE / BLOCK_SECTOR_SIZE
 
+/* Swap partition, table, and lock. */
 static struct block *swap_block;
 static struct bitmap *swap_map;
 static struct lock bitmap_lock;
 
 static block_sector_t get_free_sectors (void);
 
-
+/* Initializes the swap partition of the disk and the bitmap. */
 void
 swap_init ()
 {
@@ -28,6 +29,7 @@ swap_init ()
 	lock_init (&bitmap_lock);
 }
 
+/* Writeas a page to the swap partition. */
 swapid_t
 swap_write_page (uint8_t *vaddr)
 {
@@ -40,6 +42,7 @@ swap_write_page (uint8_t *vaddr)
 	return sector;
 }
 
+/* Reads a page into the virtual address from swapid. */
 void
 swap_read_page (uint8_t *vaddr, swapid_t swapid)
 {
@@ -55,6 +58,7 @@ swap_read_page (uint8_t *vaddr, swapid_t swapid)
 	lock_release (&bitmap_lock);
 }
 
+/* */
 static block_sector_t
 get_free_sectors ()
 {

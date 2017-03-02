@@ -10,7 +10,10 @@
 
 /* Frame Table
 
-	 The frame struct holds the information to get, free, evict, */
+	 The frame struct holds the information to get, free, and evict a frame
+	 from the frame table. The actual frame table itself is implemented as
+	 two lists, one for the free entries and one for the entries currently in
+	 use. */
 
 struct frame 
 {
