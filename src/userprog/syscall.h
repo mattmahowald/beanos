@@ -25,7 +25,6 @@ struct mmapped_file
 
 void syscall_init (void);
 void sys_exit (int);
-void syscall_unmap (struct mmapped_file *);
 void syscall_acquire_filesys_lock (void);
 void syscall_release_filesys_lock (void);
 

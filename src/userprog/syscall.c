@@ -35,6 +35,7 @@ static unsigned sys_tell (int fd);
 static void sys_close (int fd);
 static tid_t sys_wait (tid_t tid);
 static mapid_t sys_mmap (int fd, void *addr);
+static void unmap (struct mmapped_file *mf);
 static void sys_munmap (mapid_t mapping);
 static struct fd_to_file *get_file_struct_from_fd (int fd);
 static int allocate_fd (void);
@@ -157,6 +158,15 @@ sys_exit (int status)
 {
   struct thread *cur = thread_current ();
   
+  /* Unmap any still mmapped files. */
+  struct list *mfiles = &cur->mmapped_files;
+  while (!list_empty (mfiles))
+    {
+      struct list_elem *mfile_e = list_pop_front (mfiles);
+      struct mmapped_file *mfile = list_entry (mfile_e, struct mmapped_file, elem);
+      unmap (mfile);
+    }
+
   /* The way we implemented wait, we need to disable interrupts here. 
      Consider the case where, without disabling intterupts, cur's parent
      (P) is in process_exit during cur's (C) sys_exit call. C checks that 
@@ -485,8 +495,8 @@ sys_mmap (int fd, void *addr)
   return mf->id;
 }
 
-void
-syscall_unmap (struct mmapped_file *mf)
+static void
+unmap (struct mmapped_file *mf)
 {
   uint8_t *next_page = mf->start_vaddr;
   while (next_page <= (uint8_t *) mf->end_vaddr)
@@ -514,7 +524,7 @@ sys_munmap (mapid_t mapping)
                                                elem);
       if (mf->id == mapping)
         {
-          syscall_unmap (mf);
+          unmap (mf);
           return;
         }
     } 
