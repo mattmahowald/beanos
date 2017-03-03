@@ -191,16 +191,6 @@ dispose_resources (struct thread *cur)
       intr_set_level (old_level);
       free (file);        
     }
-
-  /* Unmap any still mmapped files. */
-  struct list *mfiles = &cur->mmapped_files;
-  while (!list_empty (mfiles))
-    {
-      struct list_elem *mfile_e = list_pop_front (mfiles);
-      struct mmapped_file *mfile = list_entry (mfile_e, struct mmapped_file, elem);
-      syscall_unmap (mfile);
-    }
-  
 }
 
 /* Free the current process's resources. */
