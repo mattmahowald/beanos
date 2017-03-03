@@ -133,7 +133,12 @@ start_process (void *cmdline_)
   NOT_REACHED ();
 }
 
-/* TODO write a real description for this */
+/* Identifies the thread corresponding to child_tid, then waits
+   for the child to finish by using the `done' semaphore. Removes
+   the child from the children list and frees the struct child_thread
+   struct itself before returning the exit status, first temporarily
+   storing the status to avoid the issue of getting the status after
+   the struct is freed. */
 int
 process_wait (tid_t child_tid) 
 {
@@ -462,9 +467,6 @@ load (char *cmdline, void (**eip) (void), void **esp)
   return success;
 }
 
-/* load() helpers. */
-
-// static bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -637,23 +639,3 @@ setup_stack (void **esp, char *cmdline)
 
   return true;
 }
-
-/* Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with frame_get_free().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. */
-// static bool
-// install_page (void *upage, void *kpage, bool writable)
-// {
-//   struct thread *t = thread_current ();
-
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-//   return (pagedir_get_page (t->pagedir, upage) == NULL
-//           && pagedir_set_page (t->pagedir, upage, kpage, writable));
-// }

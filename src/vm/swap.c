@@ -54,16 +54,17 @@ swap_read_page (uint8_t *vaddr, swapid_t swapid)
 		}
 
 	lock_acquire (&bitmap_lock);
-	bitmap_set_multiple (swap_map, (block_sector_t) swapid, SECTORS_PER_PAGE, false);
+	bitmap_set_multiple (swap_map, (block_sector_t) swapid, 
+											 SECTORS_PER_PAGE, false);
 	lock_release (&bitmap_lock);
 }
 
-/* */
+/* Gets free sector from the bitmap. */
 static block_sector_t
 get_free_sectors ()
 {
 	lock_acquire (&bitmap_lock);
-	size_t index = bitmap_scan_and_flip (swap_map, 0, SECTORS_PER_PAGE, /* bits that are */ false);
+	size_t index = bitmap_scan_and_flip (swap_map, 0, SECTORS_PER_PAGE, false);
 	lock_release (&bitmap_lock);
 	if (index == BITMAP_ERROR)
 		PANIC ("No swap location available.");

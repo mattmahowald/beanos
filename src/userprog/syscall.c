@@ -79,8 +79,7 @@ validate_string (const char *string)
 
 
 /* Helper function that validates the passed pointer as a legal, user
-   virtual space address.pintos -v -k -T 600 --qemu  --filesys-size=2 -p tests/vm/page-merge-par -a page-merge-par -p tests/vm/child-sort -a child-sort --swap-size=4 -- -q  -f run page-merge-par < /dev/null 2> tests/vm/page-merge-par.errors > tests/vm/page-merge-par.output
-perl -I../.. ../../tests/vm/page-merge-par.ck tests/vm/page-merge-par tests/vm/page-merge-par.result */
+   virtual space address, loading appropriate pages into memory. */
 static void
 validate_address (void *address, size_t size, bool writable)
 {
@@ -141,7 +140,6 @@ unpin (void *vaddr, size_t size)
       cur_addr += PGSIZE;
     } 
 }
-
 
 /* System call halt() shuts the operating system down. */
 static void
@@ -419,7 +417,8 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
-
+/* Iterate over the supplied file one page worth of bytes at a time, lazily 
+   adding the pages to the supplementary page table. */
 static bool
 mmap_file (uint8_t *start_addr, size_t file_len, struct file *file)
 {
@@ -458,11 +457,7 @@ mmap_file (uint8_t *start_addr, size_t file_len, struct file *file)
 }
 
 /* System call mmap(fd, addr) maps the file designated by fd into memory at 
-   start_addr ending at start_addr + file_len. The call iterates over the 
-   file, one page worth of bytes at a time, lazily adding the pages to the 
-   supplementary page table. 
-
-   If the */
+   the passed in ADDR and adds the file to the threads mmapped files list. */
 static mapid_t 
 sys_mmap (int fd, void *addr)
 {
@@ -495,6 +490,8 @@ sys_mmap (int fd, void *addr)
   return mf->id;
 }
 
+/* Unmaps a specific file by removing all the individual pages and freeing
+   mmap struct itself. */
 static void
 unmap (struct mmapped_file *mf)
 {
@@ -512,6 +509,9 @@ unmap (struct mmapped_file *mf)
   free (mf);
 }
 
+/* System call munmap(mapping) removes from memory the mmapped file
+   associated with MAPPING by iterating over the list of all the
+   current threads memory mapped files. */
 static void 
 sys_munmap (mapid_t mapping)
 {
@@ -536,104 +536,81 @@ sys_munmap (mapid_t mapping)
 
 /* Handles the syscall interrupt, identifying the system call to be
    made then validating the stack and calling the correct system call. */
-
 static void
 syscall_handler (struct intr_frame *f) 
 {
-  // printf("syscall received\n");
-
   int *esp = f->esp;
   validate_address (esp, sizeof (void *), WRITABLE);
   thread_current ()->esp = esp;
-  // printf("validated esp\n");
   switch (*esp)
     {
     case SYS_HALT:
-      // printf("1\n");
       sys_halt ();
       break;
     case SYS_EXIT:
-      // printf("2\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_exit (esp[ONE_ARG]);
       break;
     case SYS_EXEC:
-      // printf("3\n");
-
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_exec (((char **)esp)[ONE_ARG]);
       break;
     case SYS_WAIT:
-      // printf("4\n");
-
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_wait (((tid_t *)esp)[ONE_ARG]);
       break;
     case SYS_CREATE:
-      // printf("5\n");
-
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_create (((char **)esp)[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_REMOVE:
-      // printf("6\n");
-
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_remove (((char **)esp)[ONE_ARG]);
       break;
     case SYS_OPEN:
-      // printf("7\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_open (((char **)esp)[ONE_ARG]);
       break;
     case SYS_FILESIZE:
-      // printf("8\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_filesize (esp[ONE_ARG]);
       break;
     case SYS_READ:
-      // printf("9\n");
       validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_read (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                          esp[THREE_ARG]);
       break;
     case SYS_WRITE:
-      // printf("10\n");
       validate_address (esp, (THREE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_write (esp[ONE_ARG], ((void **)esp)[TWO_ARG], 
                           esp[THREE_ARG]);
       break;
     case SYS_SEEK:
-      // printf("11\n");
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       sys_seek (esp[ONE_ARG], esp[TWO_ARG]);
       break;
     case SYS_TELL:
-      // printf("12\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_tell (esp[ONE_ARG]);
       break;
     case SYS_CLOSE:
-      // printf("13\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_close (esp[ONE_ARG]);
       break;
     case SYS_MMAP:
-      // printf("14\n");
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *), WRITABLE);
       f->eax = sys_mmap (esp[ONE_ARG], ((void **)esp)[TWO_ARG]);
       break;
     case SYS_MUNMAP:
-      // printf("15\n");
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_munmap (esp[ONE_ARG]);
       break;
     default:
-      // printf("1\n");
       sys_exit (-1);
     }
 }
 
+/* Returns and increments the static next_fd value. */
 static int
 allocate_fd (void) 
 {
@@ -647,7 +624,7 @@ allocate_fd (void)
   return fd;
 }
 
-
+/* Returns and increments the static mapid value. */
 static mapid_t
 allocate_mapid (void)
 {

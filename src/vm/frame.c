@@ -67,39 +67,35 @@ evict ()
       struct frame *f = list_entry (clock_hand, struct frame, elem);
 			
 			/* Atomically test that we can evict and then evict the frame. */
-			
 			struct spte *spte = f->spte;
-			lock_acquire (&spte->spte_lock);
-			if (!f->pinned && !pagedir_is_accessed (spte->pd, spte->vaddr))
-      	{
-      		/* Release the lock, as a frame has been selected. No other process
-      			 can evict this frame due to the pinned flag, so another process
-      			 can search for another frame to evict. */
-      		clock_hand = list_next (clock_hand);
-  				if (clock_hand == list_end (&frame_used_list))
-  					clock_hand = list_begin (&frame_used_list); 
-      		
-      		list_remove (&f->elem);
-		      lock_release (&used_lock);
-		      page_unload (spte);
-		      
-		      lock_release (&spte->spte_lock);
-					f->spte = NULL;
-		      return f;
-		    }
+			if (lock_try_acquire (&spte->spte_lock))
+			  {
+					if (!f->pinned && !pagedir_is_accessed (spte->pd, spte->vaddr))
+		      	{
+		      		clock_hand = list_next (clock_hand);
+		  				if (clock_hand == list_end (&frame_used_list))
+		  					clock_hand = list_begin (&frame_used_list); 
+		      		
+		      		list_remove (&f->elem);
+				      lock_release (&used_lock);
+				      page_unload (spte);
+				      
+				      lock_release (&spte->spte_lock);
+							f->spte = NULL;
+				      return f;
+				    }
 
-		  /* Set the accessed bit to false if true. */
-      if (!f->pinned && pagedir_is_accessed (spte->pd, spte->vaddr))
-      	pagedir_set_accessed (spte->pd, spte->vaddr, false);
+				  /* Set the accessed bit to false if true. */
+		      if (!f->pinned && pagedir_is_accessed (spte->pd, spte->vaddr))
+		      	pagedir_set_accessed (spte->pd, spte->vaddr, false);
+					lock_release (&spte->spte_lock);
+				}
 			
-			lock_release (&spte->spte_lock);
 			/* Tick clock. */
-
   		clock_hand = list_next (clock_hand);
   		if (clock_hand == list_end (&frame_used_list))
   			clock_hand = list_begin (&frame_used_list);
   	} 
-
   /* Only cycle the clock once to check if any frames have been freed. */
   while (clock_hand != start);
   lock_release (&used_lock);

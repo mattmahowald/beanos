@@ -106,6 +106,8 @@ page_extend_stack (uint8_t *fault_addr, uint8_t *esp)
   return true;
 }
 
+/* Clears user data from the spte table, locking and pinning to synchronize
+   with eviction. */
 static void
 clear_user_data (struct spte *entry)
 {
@@ -209,7 +211,6 @@ page_load (void *vaddr, bool pin)
       swap_read_page (spte->frame->paddr, spte->swapid);
       break;
     case ZERO:
-      // TODO needs to be done in the background
       memset (spte->frame->paddr, 0, PGSIZE);
       break;
     }
@@ -221,6 +222,8 @@ page_load (void *vaddr, bool pin)
   return true;
 }
 
+/* Unloads a page's data to the appropriate location, updating the spte
+   metadata for later loading. */
 void
 page_unload (struct spte *spte)
 {
@@ -285,28 +288,4 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct spte *b = hash_entry (b_, struct spte, elem);
 
   return a->vaddr < b->vaddr;
-}
-
-// TODO remove
-void
-page_validate (struct hash *spt)
-{
-  struct hash_iterator i;
-  int idx = 1;
-  hash_first (&i, spt);
-  while (hash_next (&i))
-    {
-      struct spte *spte = hash_entry (hash_cur (&i), struct spte, elem);
-      char *loc;
-      switch (spte->location) 
-        {
-        case (DISK) : loc = "DISK"; break;
-        case (EXEC) : loc = "EXEC"; break;
-        case (SWAP) : loc = "SWAP"; break;
-        case (ZERO) : loc = "ZERO"; break;
-        default     : loc = "UNKN";
-        }
-      printf ("PAGE TABLE ENTRY %d in %s\nVirtual Address  %p\nPhysical Address %p\nis %swritable\n\n", 
-              idx++, loc, spte->vaddr, spte->frame->paddr, spte->writable ? "" : "not ");
-    }
 }

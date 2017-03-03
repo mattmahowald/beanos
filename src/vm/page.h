@@ -13,9 +13,6 @@
 #define WRITABLE true
 #define PIN true
 
-// TODO im not sure why this wouldnt work as swap is imported
-// typedef uint32_t swapid_t;
-
 /* States the location of the page's frame. */
 enum page_location
 {
