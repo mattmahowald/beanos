@@ -487,12 +487,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   list_init (&t->locks_held);
 
+#ifdef USERPROG 
   /* Initialize userprogram data. */
   list_init (&t->files); 
   list_init (&t->children);
   sema_init (&t->loaded, 0);
   sema_init (&t->ready_to_start, 0);
   t->load_success = true;
+#endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
