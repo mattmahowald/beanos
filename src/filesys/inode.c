@@ -3,6 +3,7 @@
 #include <debug.h>
 #include <round.h>
 #include <string.h>
+#include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
@@ -219,25 +220,28 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
+      
+      ASSERT (chunk_size > BLOCK_SECTOR_SIZE);
+      cache_read (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
 
-      if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
-        {
+      // if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
+        // {
           /* Read full sector directly into caller's buffer. */
-          block_read (fs_device, sector_idx, buffer + bytes_read);
-        }
-      else 
-        {
+          // block_read (fs_device, sector_idx, buffer + bytes_read);
+      //   }
+      // else 
+      //   {
           /* Read sector into bounce buffer, then partially copy
              into caller's buffer. */
-          if (bounce == NULL) 
-            {
-              bounce = malloc (BLOCK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-          block_read (fs_device, sector_idx, bounce);
-          memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);
-        }
+        //   if (bounce == NULL) 
+        //     {
+        //       bounce = malloc (BLOCK_SECTOR_SIZE);
+        //       if (bounce == NULL)
+        //         break;
+        //     }
+        //   block_read (fs_device, sector_idx, bounce);
+        //   memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);
+        // }
       
       /* Advance. */
       size -= chunk_size;
