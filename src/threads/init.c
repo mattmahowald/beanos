@@ -36,8 +36,9 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
-#include "vm/frame.h"
 #endif
+#include "filesys/cache.h"
+#include "vm/frame.h"
 
 /* Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
@@ -136,6 +137,8 @@ main (void)
   /* Run actions specified on kernel command line. */
   run_actions (argv);
   /* Finish up. */
+  frame_cleanup ();
+  cache_cleanup ();
   shutdown ();
   thread_exit ();
 }

@@ -30,6 +30,7 @@ struct cache_entry
 void cache_init (void);
 void cache_read (block_sector_t, uint8_t *, size_t, size_t);
 void cache_write (block_sector_t, const uint8_t *, size_t, size_t);
+void cache_cleanup (void); 
 
 #endif /* filesys/cache.h */
 

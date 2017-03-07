@@ -12,6 +12,7 @@ static void flush_thread (void *aux UNUSED);
 static struct cache_entry *evict (void);
 static struct cache_entry *add_to_cache (block_sector_t sector);
 static struct cache_entry *get_cache_entry (block_sector_t sector);
+void free_cache_entry (struct hash_elem *e, void *aux UNUSED);
 unsigned cache_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
            void *aux UNUSED);
@@ -85,9 +86,10 @@ evict ()
 	      }
       if (hash_next (clock_hand) == NULL)
       	hash_first (clock_hand, &buffer_cache);
-      if (evicted != NULL)
-      	hash_delete (&buffer_cache, &evicted->elem);
     }
+
+  hash_delete (&buffer_cache, &evicted->elem);
+	
 	return evicted;
 }
 
@@ -96,21 +98,19 @@ add_to_cache (block_sector_t sector)
 {
 
 	struct cache_entry *entry;
-	// TODO maybe move the whole hash insert til the end.
-	if (hash_size (&buffer_cache) == BUFFER_SIZE)
-		entry = evict ();
-	else
-		entry = malloc (sizeof *entry);
-	entry->sector = sector;
-	struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
-  if (e != NULL)
-    PANIC ("TODO fuck this and fuck us -- race in cache.c");
-	lock_init (&entry->lock);
-	lock_acquire (&entry->lock);
+	bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
+	entry = cache_full ? evict () : malloc (sizeof *entry);
 
+	entry->sector = sector;
 	entry->accessed = true;
 	entry->dirty = false;
+	lock_init (&entry->lock);
+	lock_acquire (&entry->lock);
 	
+	struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
+	// TODO take this out later
+	ASSERT (!e);
+
 	return entry;
 }
 
@@ -144,6 +144,7 @@ void
 cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
 						size_t to_read)
 {
+	// TODO implement read ahead once we figure out our inode implementation
 	struct cache_entry *entry = get_cache_entry (sector);
   memcpy (buffer, entry->data + ofs, to_read);
   lock_release (&entry->lock);
@@ -161,11 +162,21 @@ cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs,
 	lock_release (&entry->lock);
 }
 
-// void 
-// cache_cleanup (struct hash *spt) 
-// {
-//   hash_destroy (spt, free);
-// }
+
+void 
+free_cache_entry (struct hash_elem *e, void *aux UNUSED)
+{  
+  struct cache_entry *entry = hash_entry (e, struct cache_entry, elem);
+  if (entry->dirty)
+  	block_write (fs_device, entry->sector, entry->data);
+  free (entry);
+}
+
+void 
+cache_cleanup () 
+{
+  hash_destroy (&buffer_cache, free_cache_entry);
+}
 
 /* Hash function for cache entry. */
 unsigned 
