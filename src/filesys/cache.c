@@ -76,7 +76,6 @@ evict ()
 		      		evicted = entry;
 		      		if (evicted->dirty)
 		      			block_write (fs_device, entry->sector, entry->data);
-
 		      	}
 		      else
 		      	{
@@ -86,6 +85,8 @@ evict ()
 	      }
       if (hash_next (clock_hand) == NULL)
       	hash_first (clock_hand, &buffer_cache);
+      if (evicted != NULL)
+      	hash_delete (&buffer_cache, &evicted->elem);
     }
 	return evicted;
 }
@@ -97,20 +98,15 @@ add_to_cache (block_sector_t sector)
 	struct cache_entry *entry;
 	// TODO maybe move the whole hash insert til the end.
 	if (hash_size (&buffer_cache) == BUFFER_SIZE)
-		{
-			entry = evict ();
-			entry->sector = sector;
-		}
+		entry = evict ();
 	else
-	  { 
-			entry = malloc (sizeof *entry);
-			entry->sector = sector;
-			struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
-		  if (e != NULL)
-		    PANIC ("TODO fuck this and fuck us -- race in cache.c");
-			lock_init (&entry->lock);
-			lock_acquire (&entry->lock);
-		}
+		entry = malloc (sizeof *entry);
+	entry->sector = sector;
+	struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
+  if (e != NULL)
+    PANIC ("TODO fuck this and fuck us -- race in cache.c");
+	lock_init (&entry->lock);
+	lock_acquire (&entry->lock);
 
 	entry->accessed = true;
 	entry->dirty = false;
@@ -161,11 +157,9 @@ cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs,
 {
 	struct cache_entry *entry = get_cache_entry (sector);
 	memcpy (entry->data + ofs, buffer, to_write);
-	// block_write (fs_device, sector, entry->data);
 	entry->dirty = true;
 	lock_release (&entry->lock);
 }
-
 
 // void 
 // cache_cleanup (struct hash *spt) 
