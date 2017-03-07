@@ -29,10 +29,12 @@ static struct cache_entry *
 evict ()
 {
 	if (clock_hand == NULL)
-		hash_first (clock_hand, &buffer_cache);
-
+		{
+			clock_hand = malloc (sizeof *clock_hand);
+			hash_first (clock_hand, &buffer_cache);
+		}
 	struct cache_entry *evicted = NULL;
-	while (evicted != NULL)
+	while (evicted == NULL)
     {
       struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
       																	   struct cache_entry, elem);
@@ -46,7 +48,6 @@ evict ()
 		      		lock_release (&entry->lock);
 		      	}
 	      }
-
       if (hash_next (clock_hand) == NULL)
       	hash_first (clock_hand, &buffer_cache);
     }
@@ -94,7 +95,7 @@ get_cache_entry (block_sector_t sector)
 			lock_release (&cache_lock);
 		}	
 	else
-		{ 
+		{
 			entry = add_to_cache (sector);		
 			lock_release (&cache_lock);
 			block_read (fs_device, sector, entry->data);
@@ -108,7 +109,6 @@ void
 cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
 						size_t to_read)
 {
-	printf("read\n");
 	struct cache_entry *entry = get_cache_entry (sector);
   memcpy (buffer, entry->data + ofs, to_read);
   lock_release (&entry->lock);
@@ -120,9 +120,9 @@ void
 cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs, 
 						size_t to_write)
 {
-	printf("write\n");
 	struct cache_entry *entry = get_cache_entry (sector);
 	memcpy (entry->data + ofs, buffer, to_write);
+	block_write (fs_device, sector, entry->data);
 	lock_release (&entry->lock);
 }
 
