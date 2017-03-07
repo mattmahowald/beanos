@@ -63,16 +63,11 @@ struct spte
 inline void *round_to_page (void *vaddr);
 void page_add_spte (enum page_location, void *, struct spte_file, bool, bool);
 void page_remove_spte (void *);
-struct spte * page_get_spte (void *);
+struct spte *page_get_spte (void *);
 bool page_load (void *, bool);
 void page_unload (struct spte *);
-// TODO these names are a little inconsistent
 void page_init (struct hash *spt);
 void page_spt_cleanup (struct hash *); 
-// TODO uint8_t a bit inconsistent
 bool page_extend_stack (uint8_t *, uint8_t *);
-
-// TODO Remove
-void page_validate (struct hash *);
 
 #endif /* vm/page.h */
