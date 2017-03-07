@@ -1,11 +1,14 @@
 #include <debug.h>
+#include "devices/timer.h"
 #include "filesys/cache.h"
 #include <string.h>
 #include <stdio.h>
+#include "threads/thread.h"
 #include "threads/malloc.h"
 
 #define BUFFER_SIZE 58
 
+static void flush_thread (void *aux UNUSED);
 static struct cache_entry *evict (void);
 static struct cache_entry *add_to_cache (block_sector_t sector);
 static struct cache_entry *get_cache_entry (block_sector_t sector);
@@ -23,6 +26,34 @@ cache_init ()
 	hash_init (&buffer_cache, cache_hash, cache_less, NULL);
 	lock_init (&cache_lock);
 	clock_hand = NULL;
+	thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+}
+
+
+static void
+flush_thread (void *aux UNUSED)
+{
+	for (;;)
+		{
+			timer_sleep (30);
+			lock_acquire (&cache_lock);
+			struct hash_iterator i;
+      hash_first (&i, &buffer_cache);
+      while (hash_next (&i))
+        {
+          struct cache_entry *entry = hash_entry (hash_cur (&i), struct cache_entry, elem);
+          if (lock_try_acquire (&entry->lock))
+	          {
+	          	if (entry->dirty)
+	          	{
+								block_write (fs_device, entry->sector, entry->data);
+								entry->dirty = false;
+	          	}
+	          	lock_release (&entry->lock);
+	          }
+        }
+      lock_release (&cache_lock);  
+		}
 }
 
 static struct cache_entry *
@@ -41,7 +72,12 @@ evict ()
       if (lock_try_acquire (&entry->lock))
 	      {
 		      if (!entry->accessed)
-		      	evicted = entry;
+		      	{
+		      		evicted = entry;
+		      		if (evicted->dirty)
+		      			block_write (fs_device, entry->sector, entry->data);
+
+		      	}
 		      else
 		      	{
 		      		entry->accessed = false;
@@ -59,14 +95,16 @@ add_to_cache (block_sector_t sector)
 {
 
 	struct cache_entry *entry;
-
+	// TODO maybe move the whole hash insert til the end.
 	if (hash_size (&buffer_cache) == BUFFER_SIZE)
-		entry = evict ();
+		{
+			entry = evict ();
+			entry->sector = sector;
+		}
 	else
 	  { 
 			entry = malloc (sizeof *entry);
-			entry->accessed = true;
-			entry->dirty = false;
+			entry->sector = sector;
 			struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
 		  if (e != NULL)
 		    PANIC ("TODO fuck this and fuck us -- race in cache.c");
@@ -74,8 +112,9 @@ add_to_cache (block_sector_t sector)
 			lock_acquire (&entry->lock);
 		}
 
-	entry->sector = sector;
-
+	entry->accessed = true;
+	entry->dirty = false;
+	
 	return entry;
 }
 
@@ -122,7 +161,8 @@ cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs,
 {
 	struct cache_entry *entry = get_cache_entry (sector);
 	memcpy (entry->data + ofs, buffer, to_write);
-	block_write (fs_device, sector, entry->data);
+	// block_write (fs_device, sector, entry->data);
+	entry->dirty = true;
 	lock_release (&entry->lock);
 }
 
