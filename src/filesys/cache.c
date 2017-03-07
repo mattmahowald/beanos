@@ -112,7 +112,7 @@ cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs,
 /* Writes from the given buffer into given sector on disk. If the 
 	 sector is not already cached, sector is cached. */
 void
-cache_write (block_sector_t sector, uint8_t *buffer, size_t ofs, 
+cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs, 
 						size_t to_write)
 {
 	struct cache_entry *entry = get_cache_entry (sector);
