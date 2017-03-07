@@ -7,6 +7,7 @@
 
 static struct cache_entry *evict (void);
 static struct cache_entry *add_to_cache (block_sector_t sector);
+static struct cache_entry *get_cache_entry (block_sector_t sector);
 unsigned cache_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
            void *aux UNUSED);
@@ -32,17 +33,17 @@ evict ()
 	struct cache_entry *evicted = NULL;
 	while (evicted != NULL)
     {
-      struct cache_entry *ce = hash_entry (hash_cur (clock_hand),
+      struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
       																	   struct cache_entry, elem);
-      lock_acquire (&ce->lock);
-      if (!ce->accessed)
+      lock_acquire (&entry->lock);
+      if (!entry->accessed)
       	{
-      		evicted = ce;
+      		evicted = entry;
       	}
-      if (ce->accessed)
+      if (entry->accessed)
       	{
-      		ce->accessed = false;
-      		lock_release (&ce->lock);
+      		entry->accessed = false;
+      		lock_release (&entry->lock);
       	}
 
       if (hash_next (clock_hand))
@@ -55,53 +56,68 @@ static struct cache_entry *
 add_to_cache (block_sector_t sector)
 {
 
-	struct cache_entry *ce;
+	struct cache_entry *entry;
 
 	if (hash_size (&buffer_cache) == BUFFER_SIZE)
-		ce = evict ();
+		entry = evict ();
 	else
 	  { 
-			ce = malloc (sizeof *ce);
-			ce->accessed = true;
-			ce->dirty = false;
-			struct hash_elem *e = hash_insert (&buffer_cache, &ce->elem);
+			entry = malloc (sizeof *entry);
+			entry->accessed = true;
+			entry->dirty = false;
+			struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
 		  if (e != NULL)
-		    PANIC ("TODO FUCK OURSELVES");
-			lock_init (&ce->lock);
-			lock_acquire (&ce->lock);
+		    PANIC ("TODO fuck this and fuck us -- race in cache.c");
+			lock_init (&entry->lock);
+			lock_acquire (&entry->lock);
 		}
 
+	entry->sector = sector;
 
-	ce->sector = sector;
-
-	return ce;
+	return entry;
 }
 
-/* Looks for */
+static struct cache_entry *
+get_cache_entry (block_sector_t sector)
+{
+	struct cache_entry tmp;
+ 	struct cache_entry *entry;
+	tmp.sector = sector;
+	lock_acquire (&cache_lock);
+ 	struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
+	
+	if (elem)
+		{
+			entry = hash_entry (elem, struct cache_entry, elem);
+			lock_acquire (&entry->lock);
+		}	
+	else 
+		entry = add_to_cache (sector);
+
+  lock_release (&cache_lock);
+  return entry;
+}
+
+/* Reads from given sector into given buffer. If the sector is not
+	 already cached, sector is cached. */
 void
 cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
 						size_t to_read)
 {
-
-	/* Find the element in the buffer. */
-	struct cache_entry tmp;
- 	struct cache_entry *ce;
-	tmp.sector = sector;
-	lock_acquire (&cache_lock);
- 	struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
-	ce = elem == NULL ? add_to_cache (sector) 
-										: hash_entry (elem, struct cache_entry, elem);
-  lock_release (&cache_lock);
-
-  /* Copy data into the passed buffer. */
-  memcpy (buffer, ce->data + ofs, to_read);
+	struct cache_entry *entry = get_cache_entry (sector);
+  memcpy (buffer, entry->data + ofs, to_read);
+  lock_release (&entry->lock);
 }
 
+/* Writes from the given buffer into given sector on disk. If the 
+	 sector is not already cached, sector is cached. */
 void
-cache_write ()
+cache_write (block_sector_t sector, uint8_t *buffer, size_t ofs, 
+						size_t to_write)
 {
-	return;
-  // block_write (fs_device, sector_idx, buffer + bytes_written);
+	struct cache_entry *entry = get_cache_entry (sector);
+	memcpy (entry->data + ofs, buffer, to_write);
+	lock_release (&entry->lock);
 }
 
 
