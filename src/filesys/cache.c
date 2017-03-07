@@ -1,6 +1,7 @@
 #include <debug.h>
 #include "filesys/cache.h"
 #include <string.h>
+#include <stdio.h>
 #include "threads/malloc.h"
 
 #define BUFFER_SIZE 58
@@ -35,18 +36,18 @@ evict ()
     {
       struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
       																	   struct cache_entry, elem);
-      lock_acquire (&entry->lock);
-      if (!entry->accessed)
-      	{
-      		evicted = entry;
-      	}
-      if (entry->accessed)
-      	{
-      		entry->accessed = false;
-      		lock_release (&entry->lock);
-      	}
+      if (lock_try_acquire (&entry->lock))
+	      {
+		      if (!entry->accessed)
+		      	evicted = entry;
+		      else
+		      	{
+		      		entry->accessed = false;
+		      		lock_release (&entry->lock);
+		      	}
+	      }
 
-      if (hash_next (clock_hand))
+      if (hash_next (clock_hand) == NULL)
       	hash_first (clock_hand, &buffer_cache);
     }
 	return evicted;
