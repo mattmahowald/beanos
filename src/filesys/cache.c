@@ -91,11 +91,14 @@ get_cache_entry (block_sector_t sector)
 		{
 			entry = hash_entry (elem, struct cache_entry, elem);
 			lock_acquire (&entry->lock);
+			lock_release (&cache_lock);
 		}	
-	else 
-		entry = add_to_cache (sector);
-
-  lock_release (&cache_lock);
+	else
+		{ 
+			entry = add_to_cache (sector);		
+			lock_release (&cache_lock);
+			block_read (fs_device, sector, entry->data);
+		}
   return entry;
 }
 
@@ -105,6 +108,7 @@ void
 cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
 						size_t to_read)
 {
+	printf("read\n");
 	struct cache_entry *entry = get_cache_entry (sector);
   memcpy (buffer, entry->data + ofs, to_read);
   lock_release (&entry->lock);
@@ -116,6 +120,7 @@ void
 cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs, 
 						size_t to_write)
 {
+	printf("write\n");
 	struct cache_entry *entry = get_cache_entry (sector);
 	memcpy (entry->data + ofs, buffer, to_write);
 	lock_release (&entry->lock);
