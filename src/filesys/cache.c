@@ -86,9 +86,9 @@ evict ()
       if (hash_next (clock_hand) == NULL)
       	hash_first (clock_hand, &buffer_cache);
     }
-
-  hash_delete (&buffer_cache, &evicted->elem);
 	
+	hash_delete (&buffer_cache, &evicted->elem);
+
 	return evicted;
 }
 
@@ -108,12 +108,10 @@ add_to_cache (block_sector_t sector)
 
 	struct cache_entry *entry;
 	struct hash_elem *e;
-	bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
-	entry = cache_full ? evict () : allocate ();
 
-
-	if (cache_full)
+	if (hash_size (&buffer_cache) == BUFFER_SIZE)
 		{
+			/* Evict returns locked cache_entry. */
 			entry = evict ();
 			entry->sector = sector;
 			e = hash_insert (&buffer_cache, &entry->elem);
@@ -125,8 +123,7 @@ add_to_cache (block_sector_t sector)
 		{
 			entry = allocate ();
 			entry->sector = sector;
-			entry->accessed = true;
-			entry->dirty = false;
+
 			lock_init (&entry->lock);
 			lock_acquire (&entry->lock);
 			e = hash_insert (&buffer_cache, &entry->elem);
@@ -134,6 +131,9 @@ add_to_cache (block_sector_t sector)
 		}
 
 	ASSERT (!e);
+
+	entry->accessed = true;
+	entry->dirty = false;
 
 	return entry;
 }
