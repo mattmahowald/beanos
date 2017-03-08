@@ -10,6 +10,7 @@
 
 static void flush_thread (void *aux UNUSED);
 static struct cache_entry *evict (void);
+static struct cache_entry *allocate (void);
 static struct cache_entry *add_to_cache (block_sector_t sector);
 static struct cache_entry *get_cache_entry (block_sector_t sector);
 void free_cache_entry (struct hash_elem *e, void *aux UNUSED);
@@ -75,8 +76,6 @@ evict ()
 		      if (!entry->accessed)
 		      	{
 		      		evicted = entry;
-		      		if (evicted->dirty)
-		      			block_write (fs_device, entry->sector, entry->data);
 		      	}
 		      else
 		      	{
@@ -94,21 +93,45 @@ evict ()
 }
 
 static struct cache_entry *
+allocate ()
+{
+	struct cache_entry *entry = malloc (sizeof *entry);
+	if (!entry)
+		PANIC ("Unable to allocate cache entry in cache.c.");
+	return entry;
+}
+
+
+static struct cache_entry *
 add_to_cache (block_sector_t sector)
 {
 
 	struct cache_entry *entry;
+	struct hash_elem *e;
 	bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
-	entry = cache_full ? evict () : malloc (sizeof *entry);
+	entry = cache_full ? evict () : allocate ();
 
-	entry->sector = sector;
-	entry->accessed = true;
-	entry->dirty = false;
-	lock_init (&entry->lock);
-	lock_acquire (&entry->lock);
-	
-	struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
-	// TODO take this out later
+
+	if (cache_full)
+		{
+			entry = evict ();
+			e = hash_insert (&buffer_cache, &entry->elem);
+			lock_release (&cache_lock);
+			if (entry->dirty)
+		    block_write (fs_device, entry->sector, entry->data);
+		}
+	else 
+		{
+			entry = allocate ();
+			entry->sector = sector;
+			entry->accessed = true;
+			entry->dirty = false;
+			lock_init (&entry->lock);
+			lock_acquire (&entry->lock);
+			e = hash_insert (&buffer_cache, &entry->elem);
+			lock_release (&cache_lock);
+		}
+
 	ASSERT (!e);
 
 	return entry;
@@ -132,7 +155,6 @@ get_cache_entry (block_sector_t sector)
 	else
 		{
 			entry = add_to_cache (sector);		
-			lock_release (&cache_lock);
 			block_read (fs_device, sector, entry->data);
 		}
   return entry;
