@@ -15,30 +15,24 @@ static struct cache_entry *get_cache_entry (block_sector_t sector);
 void free_cache_entry (struct hash_elem *e, void *aux UNUSED);
 unsigned cache_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
-           void *aux UNUSED);
+                 void *aux UNUSED);
 
 static struct lock cache_lock;
 static struct hash buffer_cache;
+static struct hash flush_entries;
 static struct hash_iterator *clock_hand;
+static struct condition flush;
 
 void 
 cache_init ()
 {
   hash_init (&buffer_cache, cache_hash, cache_less, NULL);
+  hash_init (&flush_entries, cache_hash, cache_less, NULL);
+  cond_init (&flush);
   lock_init (&cache_lock);
   clock_hand = NULL;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
-
-// static void
-// flush (struct cache_entry *entry)
-// {
-//   // lock_acquire (&entry->flush_lock);
-//   entry->flags &= ~DIRTY;
-//   block_write (fs_device, entry->sector, entry->data);
-//   // cond_broadcast (&entry->flushing, &entry->flush_lock);
-//   // lock_release (&entry->flush_lock);
-// }
 
 static void
 flush_thread (void *aux UNUSED)
@@ -52,7 +46,7 @@ flush_thread (void *aux UNUSED)
       while (hash_next (&i))
         {
           struct cache_entry *entry = hash_entry (hash_cur (&i), struct cache_entry, elem);
-          if (lock_try_acquire (&entry->entry_lock))
+          if (lock_try_acquire (&entry->lock))
             {
               if (entry->flags & DIRTY)
               {
@@ -60,17 +54,12 @@ flush_thread (void *aux UNUSED)
                 entry->flags &= ~DIRTY;
                 block_write (fs_device, entry->sector, entry->data);
               }
-              lock_release (&entry->entry_lock);
+              lock_release (&entry->lock);
             }
         }
       lock_release (&cache_lock);  
     }
 }
-
-// Condition wait on while the sector is being flushed
-//  After waiting, check if present
-
-// If num_users is there, don't evict it.
 
 static struct cache_entry *
 evict ()
@@ -85,19 +74,34 @@ evict ()
     {
       struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
                                            struct cache_entry, elem);
-      if (lock_try_acquire (&entry->entry_lock))
+      if (lock_try_acquire (&entry->lock))
         {
           entry->flags &= ~PRESENT;
           if (!(entry->flags & ACCESSED))
             {
               evicted = entry;
+              // TODO 
+              // set entry to not present
+              hash_delete (&buffer_cache, &evicted->elem);
               if (evicted->flags & DIRTY)
-                block_write (fs_device, entry->sector, entry->data);
+                {
+                  // hash insert (entry into flushing)
+                  // release both locks
+                  block_write (fs_device, entry->sector, entry->data);
+                  // acquire cache lock
+                  // cond_broadcast (&flush, &cache_lock);
+                  // hash delete (entry from flushing)
+                  // release cache lock
+
+                }
+              if (hash_next (clock_hand) == NULL)
+                  hash_first (clock_hand, &buffer_cache);
+              return entry;
             }
           else
             {
               entry->flags &= ~ACCESSED;
-              lock_release (&entry->entry_lock);
+              lock_release (&entry->lock);
             }
         }
       if (hash_next (clock_hand) == NULL)
@@ -114,16 +118,21 @@ add_to_cache (block_sector_t sector)
 {
 
   struct cache_entry *entry;
-  bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
-  entry = cache_full ? evict () : malloc (sizeof *entry);
+  if (hash_size (&buffer_cache) == BUFFER_SIZE)
+    // TODO
+    // If in flush_entries
+      // wait on the semaphore
+      // if it exists in the buffer (yes, check again)
+        // return the entry
+    entry = evict ();
+  else
+    entry = malloc (sizeof *entry);
 
   entry->sector = sector;
   entry->flags = PRESENT | ACCESSED;
   entry->num_users = 0;
-  lock_init (&entry->entry_lock);
-  lock_acquire (&entry->entry_lock);
-  lock_init (&entry->flush_lock);
-  cond_init (&entry->flushing);
+  lock_init (&entry->lock);
+  lock_acquire (&entry->lock);
   
   struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
   // TODO take this out later
@@ -145,7 +154,7 @@ get_cache_entry (block_sector_t sector)
     {
       // TODO this is done
       entry = hash_entry (elem, struct cache_entry, elem);
-      lock_acquire (&entry->entry_lock);
+      lock_acquire (&entry->lock);
       lock_release (&cache_lock);
     } 
   else
@@ -166,7 +175,7 @@ cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs,
   // TODO implement read ahead once we figure out our inode implementation
   struct cache_entry *entry = get_cache_entry (sector);
   memcpy (buffer, entry->data + ofs, to_read);
-  lock_release (&entry->entry_lock);
+  lock_release (&entry->lock);
 }
 
 /* Writes from the given buffer into given sector on disk. If the 
@@ -178,7 +187,7 @@ cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs,
   struct cache_entry *entry = get_cache_entry (sector);
   memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY;
-  lock_release (&entry->entry_lock);
+  lock_release (&entry->lock);
 }
 
 

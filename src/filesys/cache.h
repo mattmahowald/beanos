@@ -20,9 +20,13 @@ struct cache_entry
   uint8_t flags;
 
   uint8_t num_users;
-  struct lock entry_lock;
-  struct condition flushing;
-  struct lock flush_lock;
+  struct lock lock;
+};
+
+struct flush_entry
+{
+  struct hash_elem elem;
+  block_sector_t sector;
 };
 
 void cache_init (void);
