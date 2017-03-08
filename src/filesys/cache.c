@@ -48,6 +48,7 @@ flush_thread (void *aux UNUSED)
 	          {
 	          	if (entry->dirty)
 	          	{
+								// TODO figure out a way to do this syncly
 								block_write (fs_device, entry->sector, entry->data);
 								entry->dirty = false;
 	          	}
