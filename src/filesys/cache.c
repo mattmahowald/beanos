@@ -24,143 +24,161 @@ static struct hash_iterator *clock_hand;
 void 
 cache_init ()
 {
-	hash_init (&buffer_cache, cache_hash, cache_less, NULL);
-	lock_init (&cache_lock);
-	clock_hand = NULL;
-	thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  hash_init (&buffer_cache, cache_hash, cache_less, NULL);
+  lock_init (&cache_lock);
+  clock_hand = NULL;
+  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
 
+// static void
+// flush (struct cache_entry *entry)
+// {
+//   // lock_acquire (&entry->flush_lock);
+//   entry->flags &= ~DIRTY;
+//   block_write (fs_device, entry->sector, entry->data);
+//   // cond_broadcast (&entry->flushing, &entry->flush_lock);
+//   // lock_release (&entry->flush_lock);
+// }
 
 static void
 flush_thread (void *aux UNUSED)
 {
-	for (;;)
-		{
-			timer_sleep (30);
-			lock_acquire (&cache_lock);
-			struct hash_iterator i;
+  for (;;)
+    {
+      timer_sleep (30);
+      lock_acquire (&cache_lock);
+      struct hash_iterator i;
       hash_first (&i, &buffer_cache);
       while (hash_next (&i))
         {
           struct cache_entry *entry = hash_entry (hash_cur (&i), struct cache_entry, elem);
-          if (lock_try_acquire (&entry->lock))
-	          {
-	          	if (entry->dirty)
-	          	{
-								// TODO figure out a way to do this syncly
-								block_write (fs_device, entry->sector, entry->data);
-								entry->dirty = false;
-	          	}
-	          	lock_release (&entry->lock);
-	          }
+          if (lock_try_acquire (&entry->entry_lock))
+            {
+              if (entry->flags & DIRTY)
+              {
+                // TODO figure out a way to do this syncly
+                entry->flags &= ~DIRTY;
+                block_write (fs_device, entry->sector, entry->data);
+              }
+              lock_release (&entry->entry_lock);
+            }
         }
       lock_release (&cache_lock);  
-		}
+    }
 }
+
+// Condition wait on while the sector is being flushed
+//  After waiting, check if present
+
+// If num_users is there, don't evict it.
 
 static struct cache_entry *
 evict ()
 {
-	if (clock_hand == NULL)
-		{
-			clock_hand = malloc (sizeof *clock_hand);
-			hash_first (clock_hand, &buffer_cache);
-		}
-	struct cache_entry *evicted = NULL;
-	while (evicted == NULL)
+  if (clock_hand == NULL)
+    {
+      clock_hand = malloc (sizeof *clock_hand);
+      hash_first (clock_hand, &buffer_cache);
+    }
+  struct cache_entry *evicted = NULL;
+  while (evicted == NULL)
     {
       struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
-      																	   struct cache_entry, elem);
-      if (lock_try_acquire (&entry->lock))
-	      {
-		      if (!entry->accessed)
-		      	{
-		      		evicted = entry;
-		      		if (evicted->dirty)
-		      			block_write (fs_device, entry->sector, entry->data);
-		      	}
-		      else
-		      	{
-		      		entry->accessed = false;
-		      		lock_release (&entry->lock);
-		      	}
-	      }
+                                           struct cache_entry, elem);
+      if (lock_try_acquire (&entry->entry_lock))
+        {
+          entry->flags &= ~PRESENT;
+          if (!(entry->flags & ACCESSED))
+            {
+              evicted = entry;
+              if (evicted->flags & DIRTY)
+                block_write (fs_device, entry->sector, entry->data);
+            }
+          else
+            {
+              entry->flags &= ~ACCESSED;
+              lock_release (&entry->entry_lock);
+            }
+        }
       if (hash_next (clock_hand) == NULL)
-      	hash_first (clock_hand, &buffer_cache);
+        hash_first (clock_hand, &buffer_cache);
     }
 
   hash_delete (&buffer_cache, &evicted->elem);
-	
-	return evicted;
+  
+  return evicted;
 }
 
 static struct cache_entry *
 add_to_cache (block_sector_t sector)
 {
 
-	struct cache_entry *entry;
-	bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
-	entry = cache_full ? evict () : malloc (sizeof *entry);
+  struct cache_entry *entry;
+  bool cache_full = (hash_size (&buffer_cache) == BUFFER_SIZE);
+  entry = cache_full ? evict () : malloc (sizeof *entry);
 
-	entry->sector = sector;
-	entry->accessed = true;
-	entry->dirty = false;
-	lock_init (&entry->lock);
-	lock_acquire (&entry->lock);
-	
-	struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
-	// TODO take this out later
-	ASSERT (!e);
+  entry->sector = sector;
+  entry->flags = PRESENT | ACCESSED;
+  entry->num_users = 0;
+  lock_init (&entry->entry_lock);
+  lock_acquire (&entry->entry_lock);
+  lock_init (&entry->flush_lock);
+  cond_init (&entry->flushing);
+  
+  struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
+  // TODO take this out later
+  ASSERT (!e);
 
-	return entry;
+  return entry;
 }
 
 static struct cache_entry *
 get_cache_entry (block_sector_t sector)
 {
-	struct cache_entry tmp;
- 	struct cache_entry *entry;
-	tmp.sector = sector;
-	lock_acquire (&cache_lock);
- 	struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
-	
-	if (elem)
-		{
-			entry = hash_entry (elem, struct cache_entry, elem);
-			lock_acquire (&entry->lock);
-			lock_release (&cache_lock);
-		}	
-	else
-		{
-			entry = add_to_cache (sector);		
-			lock_release (&cache_lock);
-			block_read (fs_device, sector, entry->data);
-		}
+  struct cache_entry tmp;
+  struct cache_entry *entry;
+  tmp.sector = sector;
+  lock_acquire (&cache_lock);
+  struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
+  
+  if (elem)
+    {
+      // TODO this is done
+      entry = hash_entry (elem, struct cache_entry, elem);
+      lock_acquire (&entry->entry_lock);
+      lock_release (&cache_lock);
+    } 
+  else
+    {
+      entry = add_to_cache (sector);    
+      lock_release (&cache_lock);
+      block_read (fs_device, sector, entry->data);
+    }
   return entry;
 }
 
 /* Reads from given sector into given buffer. If the sector is not
-	 already cached, sector is cached. */
+   already cached, sector is cached. */
 void
 cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
-						size_t to_read)
+            size_t to_read)
 {
-	// TODO implement read ahead once we figure out our inode implementation
-	struct cache_entry *entry = get_cache_entry (sector);
+  // TODO implement read ahead once we figure out our inode implementation
+  struct cache_entry *entry = get_cache_entry (sector);
   memcpy (buffer, entry->data + ofs, to_read);
-  lock_release (&entry->lock);
+  lock_release (&entry->entry_lock);
 }
 
 /* Writes from the given buffer into given sector on disk. If the 
-	 sector is not already cached, sector is cached. */
+   sector is not already cached, sector is cached. */
 void
 cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs, 
-						size_t to_write)
+            size_t to_write)
 {
-	struct cache_entry *entry = get_cache_entry (sector);
-	memcpy (entry->data + ofs, buffer, to_write);
-	entry->dirty = true;
-	lock_release (&entry->lock);
+  struct cache_entry *entry = get_cache_entry (sector);
+  memcpy (entry->data + ofs, buffer, to_write);
+  entry->flags |= DIRTY;
+  lock_release (&entry->entry_lock);
 }
 
 
@@ -168,8 +186,8 @@ void
 free_cache_entry (struct hash_elem *e, void *aux UNUSED)
 {  
   struct cache_entry *entry = hash_entry (e, struct cache_entry, elem);
-  if (entry->dirty)
-  	block_write (fs_device, entry->sector, entry->data);
+  if (entry->flags & DIRTY)
+    block_write (fs_device, entry->sector, entry->data);
   free (entry);
 }
 

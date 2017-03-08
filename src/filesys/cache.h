@@ -6,26 +6,24 @@
 #include <hash.h>
 #include "threads/synch.h"
 
+#define ACCESSED 0b00000001
+#define DIRTY    0b00000010
+#define PRESENT  0b00000100
+#define METADATA 0b00001000
+
 struct cache_entry
 {
-	struct hash_elem elem;
-	block_sector_t sector;
-	uint8_t data[BLOCK_SECTOR_SIZE];
-	bool dirty;
-	bool accessed;
-	struct lock lock;
+  struct hash_elem elem;
+  block_sector_t sector;
+  uint8_t data[BLOCK_SECTOR_SIZE];
+
+  uint8_t flags;
+
+  uint8_t num_users;
+  struct lock entry_lock;
+  struct condition flushing;
+  struct lock flush_lock;
 };
-
-
-/*
-	 	sizeof struc list_elem 			       = 8
-	+	sizeof uint32_t                    = 4
-	+	sizeof uint8_t * BLOCK_SECTOR_SIZE = 512
-	+	sizeof bool                        = 1
-	+	sizeof struct lock                 = (4 + (16 + 4) + 8) = 32
-  --------------------------------------------------------------
-    sizeof struct cache_entry          = 557
-*/
 
 void cache_init (void);
 void cache_read (block_sector_t, uint8_t *, size_t, size_t);
