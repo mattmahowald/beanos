@@ -9,27 +9,35 @@
 #define BUFFER_SIZE 58
 
 static void flush_thread (void *aux UNUSED);
+static void flush (struct cache_entry *entry);
 static struct cache_entry *evict (void);
+
 static struct cache_entry *add_to_cache (block_sector_t sector);
 static struct cache_entry *get_cache_entry (block_sector_t sector);
+
 void free_cache_entry (struct hash_elem *e, void *aux UNUSED);
 unsigned cache_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
+                 void *aux UNUSED);
+unsigned flush_hash (const struct hash_elem *p_, void *aux UNUSED);
+bool flush_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                  void *aux UNUSED);
 
 static struct lock cache_lock;
 static struct hash buffer_cache;
 static struct hash flush_entries;
 static struct hash_iterator *clock_hand;
-static struct condition flush;
+static struct condition flush_complete;
+static bool cache_full;
 
 void 
 cache_init ()
 {
   hash_init (&buffer_cache, cache_hash, cache_less, NULL);
-  hash_init (&flush_entries, cache_hash, cache_less, NULL);
-  cond_init (&flush);
+  hash_init (&flush_entries, flush_hash, flush_less, NULL);
+  cond_init (&flush_complete);
   lock_init (&cache_lock);
+  cache_full = false;
   clock_hand = NULL;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
@@ -49,16 +57,32 @@ flush_thread (void *aux UNUSED)
           if (lock_try_acquire (&entry->lock))
             {
               if (entry->flags & DIRTY)
-              {
-                // TODO figure out a way to do this syncly
-                entry->flags &= ~DIRTY;
-                block_write (fs_device, entry->sector, entry->data);
-              }
+                {
+                  // TODO figure out a way to do this syncly
+                  entry->flags &= ~DIRTY;
+                  flush(entry);
+                }
               lock_release (&entry->lock);
             }
         }
       lock_release (&cache_lock);  
     }
+}
+
+static void
+flush (struct cache_entry *entry)
+{
+  struct flush_entry *flush = malloc (sizeof *flush);
+  if (flush == NULL)
+    PANIC ("Could not malloc space for a flush entry in cache.c flush()");
+  flush->sector = entry->sector;
+  hash_insert (&flush_entries, &flush->elem);
+  lock_release (&cache_lock);
+  block_write (fs_device, entry->sector, entry->data);
+  lock_acquire (&cache_lock);
+  hash_delete (&flush_entries, &flush->elem);
+  free (flush);
+  cond_broadcast (&flush_complete, &cache_lock);
 }
 
 static struct cache_entry *
@@ -67,36 +91,25 @@ evict ()
   if (clock_hand == NULL)
     {
       clock_hand = malloc (sizeof *clock_hand);
+      // TODO panic on malloc failure (cmd + f malloc)
       hash_first (clock_hand, &buffer_cache);
     }
   struct cache_entry *evicted = NULL;
   while (evicted == NULL)
     {
       struct cache_entry *entry = hash_entry (hash_cur (clock_hand),
-                                           struct cache_entry, elem);
+                                              struct cache_entry, elem);
+      if (hash_next (clock_hand) == NULL)
+        hash_first (clock_hand, &buffer_cache);
       if (lock_try_acquire (&entry->lock))
         {
-          entry->flags &= ~PRESENT;
           if (!(entry->flags & ACCESSED))
             {
               evicted = entry;
-              // TODO 
-              // set entry to not present
               hash_delete (&buffer_cache, &evicted->elem);
+              lock_release (&evicted->lock);
               if (evicted->flags & DIRTY)
-                {
-                  // hash insert (entry into flushing)
-                  // release both locks
-                  block_write (fs_device, entry->sector, entry->data);
-                  // acquire cache lock
-                  // cond_broadcast (&flush, &cache_lock);
-                  // hash delete (entry from flushing)
-                  // release cache lock
-
-                }
-              if (hash_next (clock_hand) == NULL)
-                  hash_first (clock_hand, &buffer_cache);
-              return entry;
+                flush (evicted);
             }
           else
             {
@@ -104,27 +117,40 @@ evict ()
               lock_release (&entry->lock);
             }
         }
-      if (hash_next (clock_hand) == NULL)
-        hash_first (clock_hand, &buffer_cache);
     }
 
-  hash_delete (&buffer_cache, &evicted->elem);
-  
   return evicted;
 }
 
 static struct cache_entry *
 add_to_cache (block_sector_t sector)
 {
-
   struct cache_entry *entry;
-  if (hash_size (&buffer_cache) == BUFFER_SIZE)
-    // TODO
-    // If in flush_entries
-      // wait on the semaphore
-      // if it exists in the buffer (yes, check again)
-        // return the entry
-    entry = evict ();
+  if (!cache_full && hash_size (&buffer_cache) == BUFFER_SIZE)
+    cache_full = true;
+
+  if (cache_full)
+    {
+      struct flush_entry tmp;
+      tmp.sector = sector;
+      struct hash_elem *elem = hash_find (&flush_entries, &tmp.elem);
+      while (elem)
+        {
+          cond_wait (&flush_complete, &cache_lock);
+          struct cache_entry tmp_cache;
+          tmp_cache.sector = sector;
+          struct hash_elem *e = hash_find (&buffer_cache, &tmp_cache.elem);
+          if (e)
+            {
+              entry = hash_entry (e, struct cache_entry, elem);
+              lock_acquire (&entry->lock);
+              return entry;
+            }
+          elem = hash_find (&flush_entries, &tmp.elem);
+        }
+      entry = evict ();
+    }
+    
   else
     entry = malloc (sizeof *entry);
 
@@ -159,6 +185,7 @@ get_cache_entry (block_sector_t sector)
     } 
   else
     {
+      // add_to_cache returns a cache_entry with the lock held
       entry = add_to_cache (sector);    
       lock_release (&cache_lock);
       block_read (fs_device, sector, entry->data);
@@ -203,6 +230,7 @@ free_cache_entry (struct hash_elem *e, void *aux UNUSED)
 void 
 cache_cleanup () 
 {
+  // TODO flush cleanup
   hash_destroy (&buffer_cache, free_cache_entry);
 }
 
@@ -219,8 +247,28 @@ bool
 cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
            void *aux UNUSED)
 {
-  const struct cache_entry *a = hash_entry (a_, struct cache_entry, elem);
-  const struct cache_entry *b = hash_entry (b_, struct cache_entry, elem);
+  const struct flush_entry *a = hash_entry (a_, struct flush_entry, elem);
+  const struct flush_entry *b = hash_entry (b_, struct flush_entry, elem);
+
+  return a->sector < b->sector;
+}
+
+
+/* Hash function for cache entry. */
+unsigned 
+flush_hash (const struct hash_elem *p_, void *aux UNUSED)
+{
+  const struct flush_entry *p = hash_entry (p_, struct flush_entry, elem);
+  return hash_int (p->sector);
+}
+
+/* Comparator function for cache entry. */
+bool 
+flush_less (const struct hash_elem *a_, const struct hash_elem *b_, 
+           void *aux UNUSED)
+{
+  const struct flush_entry *a = hash_entry (a_, struct flush_entry, elem);
+  const struct flush_entry *b = hash_entry (b_, struct flush_entry, elem);
 
   return a->sector < b->sector;
 }
