@@ -115,6 +115,7 @@ add_to_cache (block_sector_t sector)
 	if (cache_full)
 		{
 			entry = evict ();
+			entry->sector = sector;
 			e = hash_insert (&buffer_cache, &entry->elem);
 			lock_release (&cache_lock);
 			if (entry->dirty)
