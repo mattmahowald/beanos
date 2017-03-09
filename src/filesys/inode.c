@@ -3,6 +3,7 @@
 #include <debug.h>
 #include <round.h>
 #include <string.h>
+#include <stdio.h>
 #include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
@@ -89,7 +90,9 @@ static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   struct inode_disk disk_inode;
+  // printf ("inode.c byte_to_sector called, calling cache-read on sector %d\n", inode->sector);
   cache_read (inode->sector, &disk_inode, 0, sizeof disk_inode);
+  // printf ("inode.c byte_to_sector done with cache_read.\n");
 
   block_sector_t sector_index = pos / BLOCK_SECTOR_SIZE;
   return sector_index_to_sector (sector_index, &disk_inode);
@@ -112,8 +115,8 @@ allocate_sectors (struct inode_disk *inode, size_t sectors)
   size_t sector = 0;
   static char zeros[BLOCK_SECTOR_SIZE];
   
-  struct indirect_block indirect;
-  struct indirect_block doubly_indirect;
+  struct indirect_block *indirect = malloc (sizeof *indirect);
+  struct indirect_block *doubly_indirect= malloc (sizeof *doubly_indirect);;
 
   if (sectors > NUM_DIRECT)
     {
@@ -140,36 +143,40 @@ allocate_sectors (struct inode_disk *inode, size_t sectors)
   
   while (sector + NUM_DIRECT < sectors && sector < NUM_INDIRECT)
     {
-      if (!free_map_allocate (1, &indirect.sectors[sector]))
+      if (!free_map_allocate (1, &indirect->sectors[sector]))
         return sector + NUM_DIRECT;
 
-      cache_write (indirect.sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
+      cache_write (indirect->sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
       sector++;
     }
-  
+  free (indirect);
   sector = 0;
   
-  struct indirect_block temp_indirect;
+  struct indirect_block *temp_indirect = malloc (sizeof *temp_indirect);
   while (sector + NUM_DIRECT + NUM_INDIRECT < sectors && sector < NUM_DOUBLY_INDIRECT)
     {
       size_t sector_index = sector / NUM_INDIRECT;
       size_t off = sector % NUM_INDIRECT;
       if (off == 0)
         {
-          if (!free_map_allocate (1, &doubly_indirect.sectors[sector_index]))
+          if (!free_map_allocate (1, &doubly_indirect->sectors[sector_index]))
             return sector + NUM_DIRECT + NUM_INDIRECT;
         }
 
-      if (!free_map_allocate (1, &temp_indirect.sectors[off]))
+      if (!free_map_allocate (1, &temp_indirect->sectors[off]))
         return sector + NUM_DIRECT + NUM_INDIRECT;
 
-      cache_write (temp_indirect.sectors[off], zeros, 0, BLOCK_SECTOR_SIZE);
+      cache_write (temp_indirect->sectors[off], zeros, 0, BLOCK_SECTOR_SIZE);
 
       sector++;
 
-      if (off + 1 == NUM_INDIRECT)
-        cache_write (doubly_indirect.sectors[sector_index], &temp_indirect, 0, BLOCK_SECTOR_SIZE);
+      if (off + 1 == NUM_INDIRECT) {
+
+        cache_write (doubly_indirect->sectors[sector_index], &temp_indirect, 0, BLOCK_SECTOR_SIZE);
+        free (temp_indirect);
+      }
     }
+  free (doubly_indirect);
 
   return sectors;
 
@@ -187,12 +194,16 @@ inode_create (block_sector_t sector, off_t length)
   struct inode_disk *disk_inode = NULL;
   bool success = false;
 
+  // printf ("inode.c inode_create called sector %d lengt %d.\n", sector, length);
+
   ASSERT (length >= 0);
   /* If this assertion fails, the inode structure is not exactly
      one sector in size, and you should fix that. */
   ASSERT (sizeof *disk_inode == BLOCK_SECTOR_SIZE);
 
   disk_inode = calloc (1, sizeof *disk_inode);  
+
+  // printf ("inode.c calloc'd disk inode\n");
 
   if (disk_inode != NULL)
     {
@@ -201,13 +212,19 @@ inode_create (block_sector_t sector, off_t length)
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
       size_t sectors_allocated = allocate_sectors (disk_inode, sectors);
-      ASSERT (sectors_allocated == sectors);
+      // printf ("inode.c inode_create allocated %d sectors\n", (int) sectors_allocated);
+      if (sectors_allocated == sectors)
+        success = true;
+      else
+        ASSERT (sectors_allocated == sectors);
       // TODO if (sectors_allocated != sectors)
       //    for each sector from 0 to sectors allocated - 1
       //      free map release
       cache_write (sector, disk_inode, 0, BLOCK_SECTOR_SIZE);
       free (disk_inode);
     }
+  // printf ("inode.c inode_create done\n");
+
   return success;
 }
 
@@ -217,6 +234,7 @@ inode_create (block_sector_t sector, off_t length)
 struct inode *
 inode_open (block_sector_t sector)
 {
+  // printf ("inode.c inode_open called\n");
   struct list_elem *e;
   struct inode *inode;
 
@@ -228,9 +246,12 @@ inode_open (block_sector_t sector)
       if (inode->sector == sector) 
         {
           inode_reopen (inode);
+          // printf ("inode.c inode_open done (found)\n");
+
           return inode; 
         }
     }
+  // printf ("inode.c inode_open found the inode\n");
 
   /* Allocate memory. */
   inode = malloc (sizeof *inode);
@@ -244,6 +265,8 @@ inode_open (block_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   cache_read (sector, &inode->length, 0, sizeof (size_t));
+
+  // printf ("inode.c inode_open done (created)\n");
 
   return inode;
 }
@@ -316,6 +339,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
 
+  // printf ("inode.c inode_read_at called\n");
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
@@ -339,6 +363,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       offset += chunk_size;
       bytes_read += chunk_size;
     }
+  // printf ("inode.c inode_read_at done\n");
 
   return bytes_read;
 }
@@ -354,6 +379,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 {
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
+  // printf ("inode.c inode_write_at called\n");
 
   // TODO potentially sync this
   if (inode->deny_write_cnt)
@@ -382,6 +408,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
     }
+  // printf ("inode.c inode_write_at done\n");
 
   return bytes_written;
 }

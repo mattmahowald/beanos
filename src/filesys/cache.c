@@ -48,6 +48,7 @@ flush_thread (void *aux UNUSED)
   for (;;)
     {
       timer_sleep (30);
+      // printf ("cache.c flush_thread woke up\n");
       lock_acquire (&cache_lock);
       struct hash_iterator i;
       hash_first (&i, &buffer_cache);
@@ -170,10 +171,13 @@ add_to_cache (block_sector_t sector)
 static struct cache_entry *
 get_cache_entry (block_sector_t sector)
 {
+  // printf ("cache.c get_cache_entry called\n");
+
   struct cache_entry tmp;
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
+  // printf ("cache.c get_cache_entry cache_lock acquired\n");
   struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
   
   if (elem)
@@ -190,6 +194,7 @@ get_cache_entry (block_sector_t sector)
       lock_release (&cache_lock);
       block_read (fs_device, sector, entry->data);
     }
+  // printf ("cache.c get_cache_entry concluded\n");
   return entry;
 }
 
@@ -200,8 +205,12 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
             size_t to_read)
 {
   // TODO implement read ahead once we figure out our inode implementation
+  // printf ("cache.c cache_read called with sector %d buffer at %p ofs %d to_read %d\n", (int) sector, buffer, (int) ofs, (int) to_read);
   struct cache_entry *entry = get_cache_entry (sector);
+  // printf ("cache.c cache_read got cache entry\n");
+
   memcpy (buffer, entry->data + ofs, to_read);
+  // printf ("cache.c cache_read memcopied\n");
   lock_release (&entry->lock);
 }
 
