@@ -119,7 +119,7 @@ allocate_indirect (block_sector_t *sector)
   struct indirect_block *block = malloc (sizeof *block);
   if (!block)
     return NULL;
-  if (!sector || !free_map_allocate (1, sector))
+  if (sector && !free_map_allocate (1, sector))
     {
       free (block);
       return NULL;
@@ -130,7 +130,7 @@ allocate_indirect (block_sector_t *sector)
 static size_t
 allocate_sectors (struct inode_disk *inode, size_t sectors)
 {
-  // TODO decompose this.
+  // TODO decompose this. Also, on failure, need to more concretely deallocate sectors on disk.
 
   if (sectors > MAX_SECTORS)
     return 0;
@@ -187,8 +187,15 @@ allocate_sectors (struct inode_disk *inode, size_t sectors)
     return NUM_DIRECT + NUM_INDIRECT;
 
   struct indirect_block *temp_indirect = allocate_indirect (NULL);
-  if (!temp_indirect || !free_map_allocate_not_consecutive (num_doubly, doubly_indirect->sectors))
+  if (!temp_indirect)
     {
+      free (doubly_indirect);
+      return NUM_DIRECT + NUM_INDIRECT;
+    }
+
+  if (!free_map_allocate_not_consecutive (num_doubly, doubly_indirect->sectors))
+    {
+      free (temp_indirect);
       free (doubly_indirect);
       return NUM_DIRECT + NUM_INDIRECT;
     }
