@@ -119,7 +119,7 @@ allocate_indirect (block_sector_t *sector)
   struct indirect_block *block = malloc (sizeof *block);
   if (!block)
     return NULL;
-  if (!sector && !free_map_allocate (1, sector))
+  if (!sector || !free_map_allocate (1, sector))
     {
       free (block);
       return NULL;
