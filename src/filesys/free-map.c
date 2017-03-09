@@ -40,6 +40,28 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
   return sector != BITMAP_ERROR;
 }
 
+bool
+free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
+{
+  size_t i = 0;
+  while (i < cnt)
+    {
+      free_map_allocate (1, sector + i);
+      /* Flip previously allocated before returning false. */
+      if (sector[i] == BITMAP_ERROR)
+        {
+          while (i > 0)
+            {
+              bitmap_set_multiple (free_map, sector[i - 1], 1, false);
+              i--;
+            }
+          return false;
+        }
+      i++;
+    }
+  return true;
+}
+
 /* Makes CNT sectors starting at SECTOR available for use. */
 void
 free_map_release (block_sector_t sector, size_t cnt)
