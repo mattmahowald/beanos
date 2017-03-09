@@ -196,7 +196,7 @@ get_cache_entry (block_sector_t sector)
 /* Reads from given sector into given buffer. If the sector is not
    already cached, sector is cached. */
 void
-cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs, 
+cache_read (block_sector_t sector, void *buffer, size_t ofs, 
             size_t to_read)
 {
   // TODO implement read ahead once we figure out our inode implementation
@@ -208,9 +208,10 @@ cache_read (block_sector_t sector, uint8_t *buffer, size_t ofs,
 /* Writes from the given buffer into given sector on disk. If the 
    sector is not already cached, sector is cached. */
 void
-cache_write (block_sector_t sector, const uint8_t *buffer, size_t ofs, 
+cache_write (block_sector_t sector, const void *buffer, size_t ofs, 
             size_t to_write)
 {
+  
   struct cache_entry *entry = get_cache_entry (sector);
   memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY;

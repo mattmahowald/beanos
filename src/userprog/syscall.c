@@ -660,7 +660,7 @@ get_file_struct_from_fd (int fd)
 void 
 syscall_acquire_filesys_lock ()
 {
-  return; // lock_acquire (&filesys_lock);
+  lock_acquire (&filesys_lock);
 }
 
 /* Releases the coarse file system lock. Should be called after every filesys 
@@ -668,6 +668,6 @@ syscall_acquire_filesys_lock ()
 void 
 syscall_release_filesys_lock ()
 {
-  return; // lock_release (&filesys_lock);
+  lock_release (&filesys_lock);
 }
 
