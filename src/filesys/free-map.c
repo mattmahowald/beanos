@@ -47,7 +47,7 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
   size_t i = 0;
   while (i < cnt)
     {
-      free_map_allocate (1, sector + i);
+      *(sector + i) = bitmap_scan_and_flip (free_map, 0, 1, false);
       /* Flip previously allocated before returning false. */
       if (sector[i] == BITMAP_ERROR)
         {
@@ -59,6 +59,16 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
           return false;
         }
       i++;
+    }
+  if (free_map_file != NULL
+      && !bitmap_write (free_map, free_map_file))
+    {
+      while (i > 0)
+        {
+          bitmap_set_multiple (free_map, sector[i - 1], 1, false);
+          i--;
+        }
+      return false;
     }
   return true;
 }

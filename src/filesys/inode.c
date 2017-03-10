@@ -143,7 +143,6 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors, size_t
   size_t start_indirect = start_sectors > NUM_DIRECT ? start_sectors - NUM_DIRECT : 0;
   size_t end_indirect = end_sectors > NUM_DIRECT + NUM_INDIRECT ? NUM_INDIRECT : end_sectors - NUM_DIRECT;
   size_t num_indirect = end_indirect - start_indirect;
-  
   struct indirect_block *indirect = malloc (sizeof *indirect);
   if (!indirect)
     return 0;
@@ -239,8 +238,9 @@ extend_file (struct inode_disk *inode, size_t new_size)
   
   size_t num_allocated = 0;
   num_allocated += allocate_direct_blocks (inode, num_start_sectors, num_end_sectors);
+  // printf("okay allocated %d direct blocks\n", num_allocated);
   num_allocated += allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors);
-
+  // printf("okay allocated %d direct plus indirect blocks\n", num_allocated);
   num_allocated += allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
   if (num_allocated == (num_end_sectors - num_start_sectors))
     {
