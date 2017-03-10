@@ -101,16 +101,8 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
 static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
-  // struct inode_disk *disk_inode = malloc (sizeof *disk_inode);
-  // TODO handle malloc failure
-  // printf ("inode.c byte_to_sector called, calling cache-read on sector %d\n", inode->sector);
-  // cache_read (inode->sector, disk_inode, 0, BLOCK_SECTOR_SIZE);
-  // printf ("inode.c byte_to_sector done with cache_read.\n");
-
   block_sector_t sector_index = pos / BLOCK_SECTOR_SIZE;
   return sector_index_to_sector (sector_index, inode);
-  // free (disk_inode);
-  // return sector;
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -147,8 +139,6 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors, size_t
 {
   if (start_sectors >= NUM_DIRECT + NUM_INDIRECT || end_sectors <= NUM_DIRECT)
     return 0;
-
-  PANIC ("need to allocate indirect");
 
   size_t start_indirect = start_sectors > NUM_DIRECT ? start_sectors - NUM_DIRECT : 0;
   size_t end_indirect = end_sectors > NUM_DIRECT + NUM_INDIRECT ? NUM_INDIRECT : end_sectors - NUM_DIRECT;
@@ -246,12 +236,14 @@ extend_file (struct inode_disk *inode, size_t new_size)
   if (num_start_sectors == num_end_sectors)
     return true;
   
-  size_t num_allocated = 0;
-  num_allocated += allocate_direct_blocks (inode, num_start_sectors, num_end_sectors);
-  // printf("okay allocated %d direct blocks\n", num_allocated);
-  num_allocated += allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors);
-  // printf("okay allocated %d direct plus indirect blocks\n", num_allocated);
-  num_allocated += allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
+  if (num_end_sectors > NUM_DIRECT)
+    PANIC ("Only doing direct at the moment.");
+
+  size_t num_allocated = 
+  allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) +
+  allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors) +
+  allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
+  
   if (num_allocated == (num_end_sectors - num_start_sectors))
     {
       inode->length = new_size;

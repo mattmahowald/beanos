@@ -45,6 +45,14 @@ bool
 free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 {
   size_t i = 0;
+
+  if (free_map_allocate (cnt, sector))
+  {
+    for (i = 0; i < cnt; i++)
+      *(sector + i) = *sector + i;
+    return true;
+  }
+
   while (i < cnt)
     {
       *(sector + i) = bitmap_scan_and_flip (free_map, 0, 1, false);
