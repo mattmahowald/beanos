@@ -231,19 +231,21 @@ allocate_doubly_blocks (struct inode_disk *inode UNUSED, size_t start_sectors UN
 static bool
 extend_file (struct inode_disk *inode, size_t new_size)
 {
+  printf("extend file %p to size %d\n", inode, new_size);
   size_t num_start_sectors = DIV_ROUND_UP (inode->length, BLOCK_SECTOR_SIZE);
   size_t num_end_sectors = DIV_ROUND_UP (new_size, BLOCK_SECTOR_SIZE);
   ASSERT (num_start_sectors <= num_end_sectors);
-  
+  printf("%d %d\n", num_start_sectors, num_end_sectors);
   if (num_start_sectors == num_end_sectors)
     return true;
   
   size_t num_allocated = 0;
   num_allocated += allocate_direct_blocks (inode, num_start_sectors, num_end_sectors);
+  printf("here\n");
   num_allocated += allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors);
 
   num_allocated += allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
-
+  printf("here 2\n");
   if (num_allocated == (num_end_sectors - num_start_sectors))
     {
       inode->length = new_size;
@@ -264,7 +266,6 @@ bool
 inode_create (block_sector_t sector, off_t length)
 {
   struct inode_disk *disk_inode = NULL;
-  bool success = false;
 
   ASSERT (length >= 0);
   /* If this assertion fails, the inode structure is not exactly
@@ -295,7 +296,7 @@ inode_create (block_sector_t sector, off_t length)
       free (disk_inode);
     }
 
-  return success;
+  return true;
 }
 
 /* Reads an inode from SECTOR
@@ -455,7 +456,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   if (inode->deny_write_cnt)
     return 0;
 
-  if ((size_t) offset > inode->length) 
+  if ((size_t) offset + size > inode->length) 
     {
       struct inode_disk *inode_disk = malloc (sizeof *inode_disk);
       if (!inode_disk)
