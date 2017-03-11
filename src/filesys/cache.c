@@ -29,6 +29,9 @@ static struct hash flush_entries;
 static struct hash_iterator *clock_hand; // TODO free this somewhere
 static struct condition flush_complete;
 static bool cache_full;
+static struct lock flusher_lock;
+static bool done;
+static struct semaphore flusher_killed;
 
 void 
 cache_init ()
@@ -37,9 +40,12 @@ cache_init ()
   hash_init (&flush_entries, flush_hash, flush_less, NULL);
   cond_init (&flush_complete);
   lock_init (&cache_lock);
+  lock_init (&flusher_lock);
+  sema_init (&flusher_killed, 0);
+  done = false;
   cache_full = false;
   clock_hand = NULL;
-  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  // thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
 
 static void
@@ -48,41 +54,46 @@ flush_thread (void *aux UNUSED)
   for (;;)
     {
       timer_sleep (30);
-      // printf ("cache.c flush_thread woke up\n");
+      lock_acquire (&flusher_lock);
+      if (done)
+      {
+        sema_up (&flusher_killed);
+        return;
+      }
+      printf ("cache.c flush_thread woke up\n");
       lock_acquire (&cache_lock);
       struct hash_iterator i;
       hash_first (&i, &buffer_cache);
-      while (hash_next (&i))
+      while (hash_next (&i)) // This is not okay
         {
           struct cache_entry *entry = hash_entry (hash_cur (&i), struct cache_entry, elem);
           if (lock_try_acquire (&entry->lock))
             {
               if (entry->flags & DIRTY)
                 {
-                  // TODO figure out a way to do this syncly
                   entry->flags &= ~DIRTY;
-                  flush(entry);
+                  lock_release (&cache_lock);
+                  block_write (fs_device, entry->sector, entry->data);
+                  lock_acquire (&cache_lock);
                 }
               lock_release (&entry->lock);
             }
         }
       lock_release (&cache_lock);  
+      lock_release (&flusher_lock);
     }
 }
 
 static void
 flush (struct cache_entry *entry)
 {
-  struct flush_entry *flush = malloc (sizeof *flush);
-  if (flush == NULL)
-    PANIC ("Could not malloc space for a flush entry in cache.c flush()");
-  flush->sector = entry->sector;
-  hash_insert (&flush_entries, &flush->elem);
+  struct flush_entry flush;
+  flush.sector = entry->sector;
+  hash_insert (&flush_entries, &flush.elem);
   lock_release (&cache_lock);
   block_write (fs_device, entry->sector, entry->data);
   lock_acquire (&cache_lock);
-  hash_delete (&flush_entries, &flush->elem);
-  free (flush);
+  hash_delete (&flush_entries, &flush.elem);
   cond_broadcast (&flush_complete, &cache_lock);
 }
 
@@ -131,7 +142,7 @@ add_to_cache (block_sector_t sector)
   if (!cache_full && hash_size (&buffer_cache) == BUFFER_SIZE)
     cache_full = true;
 
-  if (cache_full)
+  if (cache_full) // we need to check regardless cuz of flusher thread.
     {
       struct flush_entry tmp;
       tmp.sector = sector;
@@ -173,7 +184,6 @@ static struct cache_entry *
 get_cache_entry (block_sector_t sector)
 {
   // printf ("cache.c get_cache_entry called\n");
-
   struct cache_entry tmp;
   struct cache_entry *entry;
   tmp.sector = sector;
@@ -183,7 +193,6 @@ get_cache_entry (block_sector_t sector)
   
   if (elem)
     {
-      // TODO this is done
       entry = hash_entry (elem, struct cache_entry, elem);
       lock_acquire (&entry->lock);
       lock_release (&cache_lock);
@@ -208,6 +217,7 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
 {
   // TODO implement read ahead once we figure out our inode implementation
   // printf ("cache.c cache_read called with sector %d buffer at %p ofs %d to_read %d\n", (int) sector, buffer, (int) ofs, (int) to_read);
+  // printf("read\n");
   struct cache_entry *entry = get_cache_entry (sector);
   // printf ("cache.c cache_read got cache entry\n");
 
@@ -243,7 +253,10 @@ free_cache_entry (struct hash_elem *e, void *aux UNUSED)
 void 
 cache_cleanup () 
 {
-  // TODO flush cleanup
+  lock_acquire (&flusher_lock);
+  done = true;
+  lock_release (&flusher_lock);
+  // sema_down (&flusher_killed);
   hash_destroy (&buffer_cache, free_cache_entry);
 }
 

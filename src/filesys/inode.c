@@ -91,6 +91,7 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
 
   block_sector_t sector;
   cache_read (direct_block, &sector, offset, sizeof (block_sector_t));
+  // printf("Sector index %d in inode %p corresponds to real sector %d\n", sector_index, inode, sector);
   return sector;
 }
 
@@ -129,8 +130,10 @@ allocate_direct_blocks (struct inode_disk *inode, size_t start_sectors, size_t e
 
   size_t sector;
   for (sector = start_sectors; sector < end_direct; sector++)
-    cache_write (inode->direct[sector], zeros, 0, BLOCK_SECTOR_SIZE);
-
+    {
+      // printf("Set sector index %d to free sector %d\n", sector, inode->direct[sector]);
+      cache_write (inode->direct[sector], zeros, 0, BLOCK_SECTOR_SIZE);
+    }
   return num_direct;
 }
 
@@ -156,8 +159,10 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors, size_t
     }
   size_t sector;
   for (sector = start_indirect; sector < end_indirect; sector++)
-    cache_write (indirect->sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
-
+    {
+      cache_write (indirect->sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
+      // printf("Set sector index %d to free sector %d\n", sector + NUM_DIRECT, inode->direct[sector]);
+    }
   cache_write (inode->indirect, indirect, 0, BLOCK_SECTOR_SIZE);
   
   free (indirect);
@@ -261,7 +266,7 @@ extend_file (struct inode_disk *inode, size_t new_size)
    Returns false if memory or disk allocation fails. */
 bool
 inode_create (block_sector_t sector, off_t length)
-{
+{ 
   struct inode_disk *disk_inode = NULL;
   // printf("Creating file of size %d\n", length);
   ASSERT (length >= 0);
@@ -393,7 +398,7 @@ inode_close (struct inode *inode)
 void
 inode_remove (struct inode *inode) 
 {
-  // TODO sync this up
+  // TODO sync this up, if open cnt is 0 deallocate blocks
   ASSERT (inode != NULL);
   inode->removed = true;
 }
@@ -455,6 +460,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
   if ((size_t) offset + size > inode->length) 
     {
+      printf ("time to extend");
       struct inode_disk *inode_disk = malloc (sizeof *inode_disk);
       if (!inode_disk)
         return 0;
@@ -468,6 +474,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       cache_write (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       free (inode_disk);
       inode->length = offset + size;
+      printf("successfully extended\n");
       // TODO synch the above
     }
   while (size > 0) 
