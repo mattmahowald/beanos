@@ -77,12 +77,12 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
     }
   else if (sector_index < NUM_DIRECT + NUM_INDIRECT)
     {
-      offset = sector_index - NUM_DIRECT;
+      offset = (sector_index - NUM_DIRECT) * sizeof (block_sector_t);
       cache_read (inode->sector, &direct_block, INDIRECT_OFFS, sizeof (block_sector_t));
     }
   else
     {
-      offset = (sector_index - NUM_DIRECT - NUM_INDIRECT) % NUM_INDIRECT;
+      offset = ((sector_index - NUM_DIRECT - NUM_INDIRECT) % NUM_INDIRECT) * sizeof (block_sector_t);
       block_sector_t doubly_indirect;
       cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, sizeof (block_sector_t));
       block_sector_t doubly_offset = (sector_index - NUM_DIRECT - NUM_INDIRECT) / NUM_INDIRECT;
@@ -161,7 +161,6 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors, size_t
   cache_write (inode->indirect, indirect, 0, BLOCK_SECTOR_SIZE);
   
   free (indirect);
-
   return num_indirect;
 }
 
@@ -236,8 +235,8 @@ extend_file (struct inode_disk *inode, size_t new_size)
   if (num_start_sectors == num_end_sectors)
     return true;
   
-  if (num_end_sectors > NUM_DIRECT)
-    PANIC ("Only doing direct at the moment.");
+  if (num_end_sectors > NUM_DIRECT + NUM_INDIRECT)
+    PANIC ("Only doing direct and indirect at the moment.");
 
   size_t num_allocated = 
   allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) +

@@ -26,7 +26,7 @@ bool flush_less (const struct hash_elem *a_, const struct hash_elem *b_,
 static struct lock cache_lock;
 static struct hash buffer_cache;
 static struct hash flush_entries;
-static struct hash_iterator *clock_hand;
+static struct hash_iterator *clock_hand; // TODO free this somewhere
 static struct condition flush_complete;
 static bool cache_full;
 
@@ -157,11 +157,11 @@ add_to_cache (block_sector_t sector)
     entry = malloc (sizeof *entry);
 
   entry->sector = sector;
-  entry->flags = PRESENT | ACCESSED;
+  entry->flags = ACCESSED;
   entry->num_users = 0;
   lock_init (&entry->lock);
   lock_acquire (&entry->lock);
-  
+  // TODO interesting idea... let's put this on flush instead? would need to edit above to check flush regardless
   struct hash_elem *e = hash_insert (&buffer_cache, &entry->elem);
   // TODO take this out later
   ASSERT (!e);
@@ -193,6 +193,7 @@ get_cache_entry (block_sector_t sector)
       // add_to_cache returns a cache_entry with the lock held
       entry = add_to_cache (sector);    
       lock_release (&cache_lock);
+      // TODO I dont think this is chill.. lets never hold any lock while writing
       block_read (fs_device, sector, entry->data);
     }
   // printf ("cache.c get_cache_entry concluded\n");
@@ -211,6 +212,7 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
   // printf ("cache.c cache_read got cache entry\n");
 
   memcpy (buffer, entry->data + ofs, to_read);
+  entry->flags |= ACCESSED;
   // printf ("cache.c cache_read memcopied\n");
   lock_release (&entry->lock);
 }
@@ -224,7 +226,7 @@ cache_write (block_sector_t sector, const void *buffer, size_t ofs,
   // printf("write\n");
   struct cache_entry *entry = get_cache_entry (sector);
   memcpy (entry->data + ofs, buffer, to_write);
-  entry->flags |= DIRTY;
+  entry->flags |= DIRTY | ACCESSED;
   lock_release (&entry->lock);
 }
 
