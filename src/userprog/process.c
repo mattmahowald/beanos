@@ -204,9 +204,9 @@ process_exit (void)
   struct thread *cur = thread_current ();
   dispose_resources (cur);
 
-  enum intr_level old_level = intr_disable ();
+  syscall_acquire_filesys_lock ();
   file_close (cur->exec_file);
-  intr_set_level (old_level);
+  syscall_release_filesys_lock ();
   
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */

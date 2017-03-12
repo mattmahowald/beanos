@@ -203,7 +203,6 @@ static int
 sys_open (const char *file)
 {
   validate_string (file);
-
   syscall_acquire_filesys_lock ();
   struct file *f = filesys_open (file);
   syscall_release_filesys_lock ();
@@ -356,7 +355,7 @@ sys_close (int fd)
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
     sys_exit (-1);
-  
+
   syscall_acquire_filesys_lock ();
   file_close (f->f);
   syscall_release_filesys_lock ();
