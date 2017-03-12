@@ -484,6 +484,7 @@ inode_allow_write (struct inode *inode)
 off_t
 inode_length (const struct inode *inode)
 {
+  // TODO remove the length field from inode
   // TODO potentially sync this
   return inode->length;
 }
