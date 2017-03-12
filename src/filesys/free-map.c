@@ -4,6 +4,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
+#include <stdio.h>
 
 static struct file *free_map_file;   /* Free map file. */
 static struct bitmap *free_map;      /* Free map, one bit per sector. */
@@ -38,6 +39,48 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
   if (sector != BITMAP_ERROR)
     *sectorp = sector;
   return sector != BITMAP_ERROR;
+}
+
+bool
+free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
+{
+  size_t i = 0;
+
+  if (free_map_allocate (cnt, sector))
+  {
+    for (i = 0; i < cnt; i++)
+      *(sector + i) = *sector + i;
+    return true;
+  }
+
+  PANIC ("NEED TO ALLOCATE OUR OWN NO MORE CONSECUTIVE");
+
+  while (i < cnt)
+    {
+      *(sector + i) = bitmap_scan_and_flip (free_map, 0, 1, false);
+      /* Flip previously allocated before returning false. */
+      if (sector[i] == BITMAP_ERROR)
+        {
+          while (i > 0)
+            {
+              bitmap_set_multiple (free_map, sector[i - 1], 1, false);
+              i--;
+            }
+          return false;
+        }
+      i++;
+    }
+  if (free_map_file != NULL
+      && !bitmap_write (free_map, free_map_file))
+    {
+      while (i > 0)
+        {
+          bitmap_set_multiple (free_map, sector[i - 1], 1, false);
+          i--;
+        }
+      return false;
+    }
+  return true;
 }
 
 /* Makes CNT sectors starting at SECTOR available for use. */
