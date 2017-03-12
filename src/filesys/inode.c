@@ -376,14 +376,14 @@ inode_close (struct inode *inode)
     {
       /* Remove from inode list and release lock. */
       list_remove (&inode->elem);
- 
+      cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
+
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
           // and cache_close
           // TODO add a free_map_release_all
 
-            ;
           // free_map_release (inode->sector, 1);
           // free_map_release (inode->data.start,
           //                   bytes_to_sectors (inode->data.length)); 
@@ -473,6 +473,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
         }
       cache_write (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       free (inode_disk);
+      // printf("successfully extended from %d to %d. \n", inode->length, offset + size);
       inode->length = offset + size;
       // printf("successfully extended\n");
       // TODO synch the above

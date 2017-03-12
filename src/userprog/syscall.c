@@ -231,8 +231,11 @@ sys_filesize (int fd)
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     sys_exit (-1);
-
-  return file_length (f);
+ 
+  syscall_acquire_filesys_lock ();
+  int len = file_length (f);
+  syscall_release_filesys_lock ();
+  return len;
 }
 
 /* System call read(fd, buffer, size) reads from the file corresponding
