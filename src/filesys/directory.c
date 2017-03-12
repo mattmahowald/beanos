@@ -49,6 +49,27 @@ dir_open (struct inode *inode)
     }
 }
 
+#define ROOT_SYMBOL "/"
+#define DELIMIT_SYMBOL "/"
+
+static struct dir *
+pathname_lookup (char *pathname)
+{
+  char dirname[strlen(pathname) + 1];
+  strcpy(dirname, pathname);
+  if(strncmp(pathname, ROOT_SYMBOL, strlen(ROOT_SYMBOL)) != 0) {
+    ; // cur dir = cwd (thread_current -> cwd)
+  } else {
+    ; // cur dir = root
+  }
+  for(char *curr_dir = strtok(dirname, DELIMIT_SYMBOL); curr_dir != NULL; 
+                      curr_dir = strtok(NULL, DELIMIT_SYMBOL)) {
+    ; // find subdirectory
+    // update cur dir to subdir
+  }
+  return NULL;
+}
+
 /* Opens the root directory and returns a directory for it.
    Return true if successful, false on failure. */
 struct dir *

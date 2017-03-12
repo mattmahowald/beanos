@@ -110,6 +110,7 @@ struct thread
 
 #endif
 
+    // DIRECTORY
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
