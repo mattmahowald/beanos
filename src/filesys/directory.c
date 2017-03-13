@@ -49,26 +49,7 @@ dir_open (struct inode *inode)
     }
 }
 
-#define ROOT_SYMBOL "/"
-#define DELIMIT_SYMBOL "/"
 
-static struct dir *
-pathname_lookup (char *pathname)
-{
-  char dirname[strlen(pathname) + 1];
-  strcpy(dirname, pathname);
-  if(strncmp(pathname, ROOT_SYMBOL, strlen(ROOT_SYMBOL)) != 0) {
-    ; // cur dir = cwd (thread_current -> cwd)
-  } else {
-    ; // cur dir = root
-  }
-  for(char *curr_dir = strtok(dirname, DELIMIT_SYMBOL); curr_dir != NULL; 
-                      curr_dir = strtok(NULL, DELIMIT_SYMBOL)) {
-    ; // find subdirectory
-    // update cur dir to subdir
-  }
-  return NULL;
-}
 
 /* Opens the root directory and returns a directory for it.
    Return true if successful, false on failure. */
@@ -132,6 +113,7 @@ lookup (const struct dir *dir, const char *name,
   return false;
 }
 
+
 /* Searches DIR for a file with the given NAME
    and returns true if one exists, false otherwise.
    On success, sets *INODE to an inode for the file, otherwise to
@@ -151,6 +133,30 @@ dir_lookup (const struct dir *dir, const char *name,
     *inode = NULL;
 
   return *inode != NULL;
+}
+
+#define ROOT_SYMBOL "/"
+#define DELIMIT_SYMBOL "/"
+
+static struct dir_entry *
+pathname_lookup (char *pathname)
+{
+  struct dir_entry e;
+  struct dir cur_dir;
+  char dirname[strlen(pathname) + 1];
+  strcpy(dirname, pathname);
+  if(strncmp(pathname, ROOT_SYMBOL, strlen(ROOT_SYMBOL)) != 0) {
+    cur_dir = thread_current ()->dir; // cur dir = cwd (thread_current -> cwd)
+  } else {
+    cur_dir = dir_open_root (); // cur dir = root
+  }
+  off_t ofs;
+  for(char *subdir = strtok(dirname, DELIMIT_SYMBOL); subdir != NULL; 
+                      subdir = strtok(NULL, DELIMIT_SYMBOL)) {
+    if (!lookup (cur_dir, subdir, &e, &ofs))
+      return NULL; 
+  }
+  return e;
 }
 
 /* Adds a file named NAME to DIR, which must not already contain a
