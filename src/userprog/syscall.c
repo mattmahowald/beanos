@@ -396,15 +396,9 @@ sys_mkdir (char *dir)
   dir_split_path (dir, path, name);
   
   struct dir *d = dir_lookup_path (dir);
-  dir_make_dir (d, name);
+  dir_create (d, name);
+  return true;
 }
-//chdir (char * path)
-  // get dir from path 
-  // set thread_current's cwd to dir
-  
-//mkdir (char * path)
-  // get dir minus end from path
-  // filesys mk
 
 //readdir
 
@@ -482,7 +476,10 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CHDIR:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
-      f->eax = sys_chdir ((void **)esp)[ONE_ARG]);
+      f->eax = sys_chdir (((char **)esp)[ONE_ARG]);
+    case SYS_MKDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_mkdir (((char **)esp)[ONE_ARG]);
     default:
       sys_exit (-1);
     }

@@ -28,31 +28,51 @@ struct dir_entry
 bool
 dir_create_root (size_t entry_cnt)
 {
+  struct dir root_dir;
   if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry)))
     return false;
-  if (!dir_add ()
+
+  root_dir.inode = inode_open (ROOT_DIR_SECTOR);
+
+  if (!root_dir.inode)
+    return false;
+
+  if (!dir_add (&root_dir, "..", ROOT_DIR_SECTOR)
+      || !dir_add (&root_dir, ".", ROOT_DIR_SECTOR))
+    // TODO inode delete?
+    return false;
+
+  inode_close (root_dir.inode);
+  return true;
 }
 
 
 bool
 dir_create (struct dir *parent, char *name)
 {
+  // TODO cleanup freemap and inode
   block_sector_t sector;
   if (!free_map_allocate (1, &sector))
     return false;
 
   struct dir new_dir;
-  new_dir.inode = inode_create (sector, sizeof (struct dir_entry));   
+  if (!inode_create (sector, sizeof (struct dir_entry)))
+    return false;
+  new_dir.inode = inode_open (sector);
+  if (!new_dir.inode)
+    return false;
   if (!new_dir.inode)
     {
       free_map_release (sector, 1);
       return false;
     }
 
-  dir_add (parent, name, sector);
-  dir_add (new_dir, "..", parent->inode->sector);
-  dir_add (new_dir, ".", sector);
-
+  if (!dir_add (parent, name, sector)
+      || !dir_add (&new_dir, "..", inode_get_inumber (parent->inode))
+      || !dir_add (&new_dir, ".", sector))
+    // freemap release and inode delete
+    return false;
+  return true;
 } 
 
 /* Opens and returns the directory for the given INODE, of which
@@ -164,7 +184,8 @@ dir_lookup (const struct dir *dir, const char *name,
 #define ROOT_SYMBOL '/'
 #define DELIMIT_SYMBOL "/"
 
-void dir_split_path (char *path, char *dirpath, char *name);
+void 
+dir_split_path (char *path, char *dirpath, char *name)
 {
   char *end = strrchr (path, ROOT_SYMBOL);
   if (!end)
@@ -175,7 +196,7 @@ void dir_split_path (char *path, char *dirpath, char *name);
     }
   
   strlcpy (dirpath, path, end - path);
-  dirpath + (end - path + 1) = '\0';
+  *(dirpath + (end - path + 1)) = '\0';
   strlcpy (name, end, strlen (end) + 1);
 }
 
