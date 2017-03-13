@@ -2,6 +2,7 @@
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/directory.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -152,7 +153,6 @@ sys_exec (const char *cmd_line)
 {
   validate_string (cmd_line);
 
- 
   return process_execute (cmd_line);
 }
 
@@ -187,7 +187,7 @@ sys_remove (const char *file)
 {
   validate_string (file);
 
-  // TODO support dir
+  // TODO support dir... lets do this in filesys remove
 
   syscall_acquire_filesys_lock ();
   bool success = filesys_remove (file);
@@ -206,7 +206,7 @@ sys_open (const char *file)
 {
   validate_string (file);
 
-  // TODO support dir
+  // TODO support dir... lets do this in filesys open
 
   syscall_acquire_filesys_lock ();
   struct file *f = filesys_open (file);
@@ -361,7 +361,7 @@ sys_close (int fd)
   if (f == NULL)
     sys_exit (-1);
   
-  // TODO dir
+  // TODO dir... maybe add syscall_close which will either close file or dir depending on 
 
   syscall_acquire_filesys_lock ();
   file_close (f->f);
@@ -370,9 +370,41 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
-//chdir
+static bool
+sys_chdir (char *dir)
+{ 
+  validate_string (dir);
+  syscall_acquire_filesys_lock ();
+  struct dir *d = dir_lookup_path (dir);
+  syscall_release_filesys_lock ();
+  if (!d)
+    return false;
 
-//mkdir
+  dir_close (thread_current ()->cwd);
+  thread_current ()->cwd = d;
+  return true;
+}
+
+
+
+static bool
+sys_mkdir (char *dir)
+{
+  size_t len = strlen (dir);
+  char path[len], name[len];
+
+  dir_split_path (dir, path, name);
+  
+  struct dir *d = dir_lookup_path (dir);
+  dir_make_dir (d, name);
+}
+//chdir (char * path)
+  // get dir from path 
+  // set thread_current's cwd to dir
+  
+//mkdir (char * path)
+  // get dir minus end from path
+  // filesys mk
 
 //readdir
 
@@ -445,9 +477,12 @@ syscall_handler (struct intr_frame *f)
       f->eax = sys_tell (esp[ONE_ARG]);
       break;
     case SYS_CLOSE:
-      validate_address (esp, 2 * sizeof (void *));
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
       sys_close (esp[ONE_ARG]);
       break;
+    case SYS_CHDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_chdir ((void **)esp)[ONE_ARG]);
     default:
       sys_exit (-1);
     }

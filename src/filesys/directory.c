@@ -3,8 +3,10 @@
 #include <string.h>
 #include <list.h>
 #include "filesys/filesys.h"
+#include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 
 /* A directory. */
 struct dir 
@@ -19,15 +21,39 @@ struct dir_entry
     block_sector_t inode_sector;        /* Sector number of header. */
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
-  };
+    bool dir;                           /* Is this a directory? */
+  }; 
 
-/* Creates a directory with space for ENTRY_CNT entries in the
-   given SECTOR.  Returns true if successful, false on failure. */
+/* Creates the root directory. Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector, size_t entry_cnt)
+dir_create_root (size_t entry_cnt)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry)))
+    return false;
+  if (!dir_add ()
 }
+
+
+bool
+dir_create (struct dir *parent, char *name)
+{
+  block_sector_t sector;
+  if (!free_map_allocate (1, &sector))
+    return false;
+
+  struct dir new_dir;
+  new_dir.inode = inode_create (sector, sizeof (struct dir_entry));   
+  if (!new_dir.inode)
+    {
+      free_map_release (sector, 1);
+      return false;
+    }
+
+  dir_add (parent, name, sector);
+  dir_add (new_dir, "..", parent->inode->sector);
+  dir_add (new_dir, ".", sector);
+
+} 
 
 /* Opens and returns the directory for the given INODE, of which
    it takes ownership.  Returns a null pointer on failure. */
@@ -135,30 +161,58 @@ dir_lookup (const struct dir *dir, const char *name,
   return *inode != NULL;
 }
 
-// #define ROOT_SYMBOL "/"
-// #define DELIMIT_SYMBOL "/"
+#define ROOT_SYMBOL '/'
+#define DELIMIT_SYMBOL "/"
 
-// static struct dir_entry *
-// pathname_lookup (char *pathname)
-// {
-//   struct dir_entry e;
-//   struct dir cur_dir;
-//   char dirname[strlen(pathname) + 1];
-//   strcpy(dirname, pathname);
-//   if(strncmp(pathname, ROOT_SYMBOL, strlen(ROOT_SYMBOL)) != 0) 
-//     cur_dir = thread_current ()->dir; // cur dir = cwd (thread_current -> cwd)
-//   else
-//     cur_dir = dir_open_root (); // cur dir = root
+void dir_split_path (char *path, char *dirpath, char *name);
+{
+  char *end = strrchr (path, ROOT_SYMBOL);
+  if (!end)
+    {
+      dirpath = NULL;
+      strlcpy (name, path, strlen (path) + 1);
+      return;
+    }
   
-//   off_t ofs;
-//   for(char *subdir = strtok_r (dirname, DELIMIT_SYMBOL); subdir != NULL; 
-//                       subdir = strtok_r (NULL, DELIMIT_SYMBOL)) 
-//     {
-//       if (!lookup (cur_dir, subdir, &e, &ofs))
-//         return NULL; 
-//     }
-//   return e;
-// }
+  strlcpy (dirpath, path, end - path);
+  dirpath + (end - path + 1) = '\0';
+  strlcpy (name, end, strlen (end) + 1);
+}
+
+
+/* Returns an open dir. */
+struct dir *
+dir_lookup_path (char *pathname)
+{
+  struct dir *cur_dir;
+
+  if(pathname[0] == ROOT_SYMBOL) 
+    cur_dir = dir_open_root ();
+  else
+    cur_dir = dir_reopen (thread_current ()->cwd);
+  
+  size_t len = strlen (pathname) + 1;
+  char dirname[len];
+  strlcpy (dirname, pathname, len);
+  
+  char *save_ptr, *subdir;
+  struct inode *inode = NULL;
+  for(subdir = strtok_r (dirname, DELIMIT_SYMBOL, &save_ptr); subdir != NULL; 
+                      subdir = strtok_r (NULL, DELIMIT_SYMBOL, &save_ptr)) 
+    {
+      if (!dir_lookup (cur_dir, subdir, &inode))
+        {
+          dir_close (cur_dir);
+          return NULL;
+        }
+      struct dir *next = dir_open (inode);
+      dir_close (cur_dir);
+      if (!next)
+        return NULL;
+      cur_dir = next;       
+    }
+  return cur_dir;
+}
 
 /* Adds a file named NAME to DIR, which must not already contain a
    file by that name.  The file's inode is in sector

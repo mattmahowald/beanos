@@ -38,6 +38,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  // TODO cache_cleanup ();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -98,7 +99,7 @@ do_format (void)
 {
   printf ("Formatting file system...");
   free_map_create ();
-  if (!dir_create (ROOT_DIR_SECTOR, 16))
+  if (!dir_create_root (16))
     PANIC ("root directory creation failed");
   free_map_close ();
   printf ("done.\n");

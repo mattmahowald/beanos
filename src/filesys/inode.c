@@ -334,7 +334,7 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
           // and cache_close
-          // TODO add a free_map_release_all
+          // TODO add a free_map_release_all, as well as free map lock
           ;
           // free_map_release (inode->sector, 1);
           // free_map_release (inode->data.start,

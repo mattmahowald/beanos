@@ -111,6 +111,8 @@ struct thread
 #endif
 
     // DIRECTORY
+    struct dir *cwd;
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
