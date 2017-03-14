@@ -33,6 +33,7 @@ filesys_init (bool format)
   thread_current ()->cwd = dir_open_root ();
 
   free_map_open ();
+
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -80,7 +81,7 @@ filesys_open (const char *name)
   
   struct dir *d = dir_lookup_path (path);
   struct inode *inode = NULL;
-  printf("%s %s %s\n",name, path, end);
+
   if (d != NULL)
     dir_lookup (d, end, &inode);
   dir_close (d);
