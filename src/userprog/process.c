@@ -64,8 +64,9 @@ process_execute (const char *cmdline)
   struct thread *child = thread_get_from_tid (tid); 
   sema_down (&child->loaded);
 
-  child->cwd = thread_current ()->cwd;
+  child->cwd = dir_open (dir_get_inode (thread_current ()->cwd));
   
+
   if (!child->load_success)
     return TID_ERROR;
 

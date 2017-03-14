@@ -203,7 +203,6 @@ dir_split_path (const char *path, char *dirpath, char *name)
   strlcpy (name, end + 1, strlen (end));
 }
 
-
 /* Returns an open dir. */
 struct dir *
 dir_lookup_path (char *pathname)
