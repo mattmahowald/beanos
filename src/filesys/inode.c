@@ -27,7 +27,7 @@ struct inode_disk
     block_sector_t direct[NUM_DIRECT];
     block_sector_t indirect;
     block_sector_t doubly_indirect;
-    bool dir;                           /* Does this inode represent a directory */  
+    bool dir;                           /* Does this inode represent a directory. */  
     uint8_t unused[3];
   };
 
@@ -102,6 +102,12 @@ bool
 inode_isdir (struct inode *inode)
 {
   return inode->dir;
+}
+
+size_t
+inode_num_open (struct inode *inode)
+{
+  return inode->open_cnt;
 }
 
 /* Returns the block device sector that contains byte offset POS

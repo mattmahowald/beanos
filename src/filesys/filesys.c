@@ -42,7 +42,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
-  // TODO cache_cleanup ();
+  cache_cleanup ();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -103,8 +103,12 @@ filesys_open (const char *name)
 bool
 filesys_remove (const char *name) 
 {
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
+  size_t len = strlen (name);
+  char path[len], end[len];
+  dir_split_path (name, path, end);
+
+  struct dir *dir = dir_lookup_path (path);
+  bool success = dir != NULL && dir_remove (dir, end);
   dir_close (dir); 
 
   return success;
