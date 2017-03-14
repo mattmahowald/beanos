@@ -295,11 +295,11 @@ static bool
 dir_empty (struct inode *inode)
 {
   struct dir_entry e;
-
-  size_t read = inode_read_at (inode, &e, sizeof e, 2 * sizeof e);
-  if (read == sizeof e && e.in_use)
-    return false;
-
+  off_t ofs;
+  for (ofs = 0; inode_read_at (inode, &e, sizeof e, ofs) == sizeof e;
+       ofs += sizeof e) 
+    if (!e.in_use)
+      return false;
   return true;
 }
 
