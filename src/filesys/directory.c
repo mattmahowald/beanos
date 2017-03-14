@@ -298,9 +298,9 @@ dir_empty (struct inode *inode)
 {
   struct dir_entry e;
   off_t ofs;
-  for (ofs = 0; inode_read_at (inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = 2 * sizeof (e); inode_read_at (inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
-    if (!e.in_use)
+    if (e.in_use)
       return false;
   return true;
 }
