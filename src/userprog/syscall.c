@@ -300,6 +300,8 @@ sys_write (int fd, void *buffer, unsigned size)
 {
   validate_address (buffer, size);
 
+  if (sys_isdir (fd))
+    sys_exit (-1);
   int written = 0;
   
   if (fd == STDOUT_FILENO) 
@@ -375,23 +377,29 @@ sys_close (int fd)
   list_remove (&f->elem);
 }
 
+/* System call chdir(dir) changes the directory of the current thread
+   to the absolute or relative path denoted by DIR. */
 static bool
 sys_chdir (char *dir)
 { 
   validate_string (dir);
+
   syscall_acquire_filesys_lock ();
   struct dir *d = dir_lookup_path (dir);
   syscall_release_filesys_lock ();
+
   if (!d)
     return false;
 
   dir_close (thread_current ()->cwd);
   thread_current ()->cwd = d;
+
   return true;
 }
 
-
-
+/* System call mkdir(dir) creates a directory at location DIR. DIR can be 
+   a relative or absolute path, but all intermediate directories must 
+   exist. */
 static bool
 sys_mkdir (char *dir)
 {
@@ -406,7 +414,7 @@ sys_mkdir (char *dir)
   return dir_create (d, name);
 }
 
-//readdir
+/* System call readdir(fd, name) reads the name of the directory */
 static bool
 sys_readdir (int fd, char *name)
 {
@@ -442,7 +450,7 @@ sys_isdir (int fd)
   if (ino == NULL)
     return false;
 
-  return true;
+  return inode_isdir (ino);
 }
 
 static int 

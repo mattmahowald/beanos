@@ -98,6 +98,12 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
   return sector;
 }
 
+bool
+inode_isdir (struct inode *inode)
+{
+  return inode->dir;
+}
+
 /* Returns the block device sector that contains byte offset POS
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
