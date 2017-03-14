@@ -72,6 +72,8 @@ dir_create (struct dir *parent, char *name)
       || !dir_add (&new_dir, ".", sector))
     // freemap release and inode delete
     return false;
+
+  inode_close (new_dir.inode);
   return true;
 } 
 
