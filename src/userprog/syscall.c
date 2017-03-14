@@ -411,7 +411,9 @@ sys_mkdir (char *dir)
   
   struct dir *d = dir_lookup_path (path);
   
-  return dir_create (d, name);
+  bool success = dir_create (d, name);
+  dir_close (d);
+  return success;
 }
 
 /* System call readdir(fd, name) reads the name of the directory */
