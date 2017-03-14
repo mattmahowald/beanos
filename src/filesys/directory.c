@@ -29,7 +29,7 @@ bool
 dir_create_root (size_t entry_cnt)
 {
   struct dir root_dir;
-  if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry)))
+  if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry), ISDIR))
     return false;
 
   root_dir.inode = inode_open (ROOT_DIR_SECTOR);
@@ -56,7 +56,7 @@ dir_create (struct dir *parent, char *name)
     return false;
 
   struct dir new_dir;
-  if (!inode_create (sector, sizeof (struct dir_entry)))
+  if (!inode_create (sector, sizeof (struct dir_entry), ISDIR))
     return false;
   new_dir.inode = inode_open (sector);
   if (!new_dir.inode)
@@ -185,12 +185,12 @@ dir_lookup (const struct dir *dir, const char *name,
 #define DELIMIT_SYMBOL "/"
 
 void 
-dir_split_path (char *path, char *dirpath, char *name)
+dir_split_path (const char *path, char *dirpath, char *name)
 {
   char *end = strrchr (path, ROOT_SYMBOL);
   if (!end)
     {
-      dirpath = NULL;
+      *dirpath = '\0';
       strlcpy (name, path, strlen (path) + 1);
       return;
     }
@@ -199,7 +199,7 @@ dir_split_path (char *path, char *dirpath, char *name)
   else
     strlcpy (dirpath, path, end - path);
 
-  *(dirpath + (end - path + 1)) = 0;
+  *(dirpath + (end - path + 1)) = '\0';
   strlcpy (name, end + 1, strlen (end));
 }
 
@@ -209,7 +209,7 @@ struct dir *
 dir_lookup_path (char *pathname)
 {
   struct dir *cur_dir;
-
+  
   if(pathname[0] == ROOT_SYMBOL) 
     {
       cur_dir = dir_open_root ();
@@ -218,8 +218,11 @@ dir_lookup_path (char *pathname)
   else
     {
       cur_dir = dir_reopen (thread_current ()->cwd);
+      if (pathname[0] == '\0')
+        return cur_dir;
     }
   
+
   size_t len = strlen (pathname) + 1;
   char dirname[len];
   strlcpy (dirname, pathname, len);

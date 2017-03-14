@@ -11,13 +11,13 @@
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
-#define NUM_DIRECT 124
+#define NUM_DIRECT 123
 #define NUM_INDIRECT 128 
 #define NUM_DOUBLY_INDIRECT NUM_INDIRECT * NUM_INDIRECT
 #define MAX_SECTORS NUM_DIRECT + NUM_INDIRECT + NUM_DOUBLY_INDIRECT
 #define META_BYTES 8
-#define INDIRECT_OFFS BLOCK_SECTOR_SIZE - 8
-#define DOUBLY_OFFS BLOCK_SECTOR_SIZE - 4
+#define INDIRECT_OFFS BLOCK_SECTOR_SIZE - 12
+#define DOUBLY_OFFS BLOCK_SECTOR_SIZE - 8
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
@@ -27,6 +27,8 @@ struct inode_disk
     block_sector_t direct[NUM_DIRECT];
     block_sector_t indirect;
     block_sector_t doubly_indirect;
+    bool dir;                           /* Does this inode represent a directory */  
+    uint8_t unused[3];
   };
 
 struct indirect_block
@@ -59,6 +61,7 @@ struct inode
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     size_t length;
+    bool dir;
   };
 
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
@@ -220,7 +223,7 @@ extend_file (struct inode_disk *inode, size_t new_size)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, bool isdir)
 { 
   struct inode_disk *disk_inode = NULL;
   // printf("Creating file of size %d\n", length);
@@ -236,7 +239,7 @@ inode_create (block_sector_t sector, off_t length)
       /* Set metadata. */
       disk_inode->length = 0;
       disk_inode->magic = INODE_MAGIC;
-      
+      disk_inode->dir = isdir;
       /* Allocate sectors for our indirect and doubly indirect blocks */
       if (!free_map_allocate_not_consecutive (2, &disk_inode->indirect))
         {
@@ -293,6 +296,7 @@ inode_open (block_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   cache_read (sector, &inode->length, 0, sizeof (size_t));
+  cache_read (sector, &inode->dir, BLOCK_SECTOR_SIZE - 4, sizeof (bool));
 
   // printf ("inode.c inode_open done (created)\n");
 

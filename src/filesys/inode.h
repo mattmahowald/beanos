@@ -5,10 +5,12 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 
+#define ISDIR 1
+
 struct bitmap;
 
 void inode_init (void);
-bool inode_create (block_sector_t, off_t);
+bool inode_create (block_sector_t, off_t, bool);
 struct inode *inode_open (block_sector_t);
 struct inode *inode_reopen (struct inode *);
 block_sector_t inode_get_inumber (const struct inode *);
