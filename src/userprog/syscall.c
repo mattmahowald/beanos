@@ -402,8 +402,8 @@ sys_mkdir (char *dir)
   dir_split_path (dir, path, name);
   
   struct dir *d = dir_lookup_path (path);
-  dir_create (d, name);
-  return true;
+  
+  return dir_create (d, name);
 }
 
 //readdir
