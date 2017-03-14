@@ -197,7 +197,7 @@ dir_split_path (const char *path, char *dirpath, char *name)
   if (end == path)
     *dirpath = '/';
   else
-    strlcpy (dirpath, path, end - path);
+    strlcpy (dirpath, path, (end - path + 1));
 
   *(dirpath + (end - path + 1)) = '\0';
   strlcpy (name, end + 1, strlen (end));
