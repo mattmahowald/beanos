@@ -194,10 +194,13 @@ dir_split_path (char *path, char *dirpath, char *name)
       strlcpy (name, path, strlen (path) + 1);
       return;
     }
-  
-  strlcpy (dirpath, path, end - path);
-  *(dirpath + (end - path + 1)) = '\0';
-  strlcpy (name, end, strlen (end) + 1);
+  if (end == path)
+    *dirpath = '/';
+  else
+    strlcpy (dirpath, path, end - path);
+
+  *(dirpath + (end - path + 1)) = 0;
+  strlcpy (name, end + 1, strlen (end));
 }
 
 
@@ -208,9 +211,14 @@ dir_lookup_path (char *pathname)
   struct dir *cur_dir;
 
   if(pathname[0] == ROOT_SYMBOL) 
-    cur_dir = dir_open_root ();
+    {
+      cur_dir = dir_open_root ();
+      pathname++;
+    }
   else
-    cur_dir = dir_reopen (thread_current ()->cwd);
+    {
+      cur_dir = dir_reopen (thread_current ()->cwd);
+    }
   
   size_t len = strlen (pathname) + 1;
   char dirname[len];

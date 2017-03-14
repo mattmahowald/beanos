@@ -395,7 +395,8 @@ sys_mkdir (char *dir)
 
   dir_split_path (dir, path, name);
   
-  struct dir *d = dir_lookup_path (dir);
+  struct dir *d = dir_lookup_path (path);
+  
   dir_create (d, name);
   return true;
 }
@@ -477,9 +478,11 @@ syscall_handler (struct intr_frame *f)
     case SYS_CHDIR:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
       f->eax = sys_chdir (((char **)esp)[ONE_ARG]);
+      break;
     case SYS_MKDIR:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
       f->eax = sys_mkdir (((char **)esp)[ONE_ARG]);
+      break;
     default:
       sys_exit (-1);
     }
