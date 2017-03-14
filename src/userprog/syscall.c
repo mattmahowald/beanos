@@ -3,6 +3,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -32,13 +33,17 @@ static void sys_seek (int fd, unsigned position);
 static unsigned sys_tell (int fd);
 static void sys_close (int fd);
 static tid_t sys_wait (tid_t tid);
+static bool sys_chdir (char *dir);
+static bool sys_mkdir (char *dir);
+static bool sys_readdir (int fd, char *name);
+static bool sys_isdir (int fd);
+static int sys_inumber (int fd);
+
 static struct fd_to_file *get_file_struct_from_fd (int fd);
 static int allocate_fd (void);
 
-
 static struct lock filesys_lock; 
 static struct lock fd_lock;
-
 
 void 
 syscall_init (void) 
@@ -206,8 +211,6 @@ sys_open (const char *file)
 {
   validate_string (file);
 
-  // TODO support dir... lets do this in filesys open
-
   syscall_acquire_filesys_lock ();
   struct file *f = filesys_open (file);
   syscall_release_filesys_lock ();
@@ -218,6 +221,8 @@ sys_open (const char *file)
   struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
   if (!user_file)
     return -1;
+
+
 
   user_file->f = f;
   user_file->fd = allocate_fd ();
@@ -390,22 +395,69 @@ sys_chdir (char *dir)
 static bool
 sys_mkdir (char *dir)
 {
+  validate_string (dir);
   size_t len = strlen (dir);
   char path[len], name[len];
 
   dir_split_path (dir, path, name);
   
   struct dir *d = dir_lookup_path (path);
-  
   dir_create (d, name);
   return true;
 }
 
 //readdir
+static bool
+sys_readdir (int fd, char *name)
+{
+  validate_string (name);
+  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+  if (fd_ == NULL)
+    return false;
+
+  struct inode *ino = file_get_inode (fd_->f);
+  if (ino == NULL)
+    return false;
+
+  struct dir *d = dir_open (ino);
+  if (d == NULL)
+    return false;
+
+  bool success = dir_readdir (d, name);
+
+  dir_close (d);
+
+  return success;
+}
 
 //isdir
+static bool
+sys_isdir (int fd)
+{
+  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+  if (fd_ == NULL)
+    return false;
 
-//inumber
+  struct inode *ino = file_get_inode (fd_->f);
+  if (ino == NULL)
+    return false;
+
+  return true;
+}
+
+static int 
+sys_inumber (int fd)
+{
+  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+  if (fd_ == NULL)
+    return false;
+
+  struct inode *ino = file_get_inode (fd_->f);
+  if (ino == NULL)
+    return false;
+
+  return inode_get_inumber (ino);
+}
 
 #define ONE_ARG 1
 #define TWO_ARG 2
@@ -482,6 +534,18 @@ syscall_handler (struct intr_frame *f)
     case SYS_MKDIR:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
       f->eax = sys_mkdir (((char **)esp)[ONE_ARG]);
+      break;
+    case SYS_READDIR:
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      f->eax = sys_readdir (esp[ONE_ARG], ((char **)esp)[ONE_ARG]);
+      break;
+    case SYS_ISDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_isdir (esp[ONE_ARG]);
+      break;
+    case SYS_INUMBER:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_inumber (esp[ONE_ARG]);
       break;
     default:
       sys_exit (-1);

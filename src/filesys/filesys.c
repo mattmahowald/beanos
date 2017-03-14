@@ -33,7 +33,6 @@ filesys_init (bool format)
   thread_current ()->cwd = dir_open_root ();
 
   free_map_open ();
-
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -73,12 +72,18 @@ filesys_create (const char *name, off_t initial_size)
 struct file *
 filesys_open (const char *name)
 {
-  struct dir *dir = dir_open_root ();
+
+  size_t len = strlen (name);
+  char path[len], end[len];
+
+  dir_split_path (name, path, end);
+  
+  struct dir *d = dir_lookup_path (path);
   struct inode *inode = NULL;
 
-  if (dir != NULL)
-    dir_lookup (dir, name, &inode);
-  dir_close (dir);
+  if (d != NULL)
+    dir_lookup (d, end, &inode);
+  dir_close (d);
 
   return file_open (inode);
 }
