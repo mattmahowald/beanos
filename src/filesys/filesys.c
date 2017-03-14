@@ -80,13 +80,24 @@ filesys_create (const char *name, off_t initial_size)
 struct file *
 filesys_open (const char *name)
 {
-
   size_t len = strlen (name);
-  char path[len], end[len];
+  if (len == 0)
+    return NULL;
+
+  char path[len + 1], end[len + 1];
+
+  if (strcmp(name, "/") == 0)
+    {
+      struct dir *root = dir_open_root();
+      struct inode *inode = dir_get_inode (root);
+      dir_close (root);
+      return file_open (inode);
+    }
 
   dir_split_path (name, path, end);
   
   struct dir *d = dir_lookup_path (path);
+
   struct inode *inode = NULL;
 
   if (d != NULL)
