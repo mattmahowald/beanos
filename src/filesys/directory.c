@@ -29,7 +29,7 @@ bool
 dir_create_root (size_t entry_cnt)
 {
   struct dir root_dir;
-  if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry), ISDIR))
+  if (!inode_is_inode (ROOT_DIR_SECTOR) && !inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry), ISDIR))
     return false;
 
   root_dir.inode = inode_open (ROOT_DIR_SECTOR);
@@ -66,7 +66,7 @@ dir_create (struct dir *parent, char *name)
       free_map_release (sector, 1);
       return false;
     }
-
+  // TODO only do thsi
   if (!dir_add (parent, name, sector)
       || !dir_add (&new_dir, "..", inode_get_inumber (parent->inode))
       || !dir_add (&new_dir, ".", sector))

@@ -43,6 +43,12 @@ static bool extend_file (struct inode_disk *inode, size_t length);
 
 static char zeros[BLOCK_SECTOR_SIZE];
 
+bool
+inode_is_inode (block_sector_t sector) {
+  unsigned magic;
+  cache_read (sector, &magic, 4, sizeof (unsigned));
+  return (magic == INODE_MAGIC);
+}
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
@@ -60,7 +66,6 @@ struct inode
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-    struct lock lock;
     size_t length;
     bool dir;
   };
