@@ -230,7 +230,7 @@ sys_open (const char *file)
     {
       ((struct fd_to_dir *) fd_to_data)->dir = (struct dir *) data;
       list_push_back (&thread_current ()->directories, 
-                      &((struct fd_to_dir *) &fd_to_data)->elem);
+                      &fd_to_data->elem);
     } 
   else
     {
@@ -375,16 +375,23 @@ static void
 sys_close (int fd)
 {
   struct fd_to_file *f = get_file_struct_from_fd (fd);
-  if (f == NULL)
-    sys_exit (-1);
-  
-  // TODO dir... maybe add syscall_close which will either close file or dir depending on 
+  struct fd_to_dir *d = get_dir_struct_from_fd (fd);
 
-  syscall_acquire_filesys_lock ();
-  file_close (f->f);
-  syscall_release_filesys_lock ();
   
-  list_remove (&f->elem);
+  if (f != NULL)
+    {
+      syscall_acquire_filesys_lock ();
+      file_close (f->f);
+      syscall_release_filesys_lock ();
+      list_remove (&f->elem);
+    }
+  else if (d != NULL)
+    {
+      dir_close (d->dir);
+      list_remove (&d->elem);
+    }
+  else
+    sys_exit (-1);
 }
 
 /* System call chdir(dir) changes the directory of the current thread
@@ -433,25 +440,12 @@ sys_readdir (int fd, char *name)
 
   // TODO validate name
   validate_address ((void **) name, 14);
-  syscall_acquire_filesys_lock ();
-  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+  struct fd_to_dir *fd_ = get_dir_struct_from_fd (fd);
   if (fd_ == NULL)
     return false;
 
-  struct inode *ino = file_get_inode (fd_->f);
-  
-  if (ino == NULL)
-    return false;
+  bool success = dir_readdir (fd_->dir, name);
 
-  struct dir *d = dir_open (ino);
-  if (d == NULL)
-    return false;
-
-  bool success = dir_readdir (d, name);
-
-  dir_close (d);
-
-  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -601,6 +595,7 @@ get_file_struct_from_fd (int fd)
 static struct fd_to_dir *
 get_dir_struct_from_fd (int fd)
 {
+  if (fd <= STDOUT_FILENO) return NULL;
   struct list_elem *dir_e;
   struct list *dirs = &thread_current ()->directories;
   for (dir_e = list_begin (dirs); dir_e != list_end (dirs); 

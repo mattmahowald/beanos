@@ -233,7 +233,6 @@ void
 cache_write (block_sector_t sector, const void *buffer, size_t ofs, 
             size_t to_write)
 {
-  // printf("write\n");
   struct cache_entry *entry = get_cache_entry (sector);
   memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;

@@ -53,8 +53,6 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
     return true;
   }
 
-  PANIC ("NEED TO ALLOCATE OUR OWN NO MORE CONSECUTIVE");
-
   while (i < cnt)
     {
       *(sector + i) = bitmap_scan_and_flip (free_map, 0, 1, false);
