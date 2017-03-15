@@ -200,7 +200,6 @@ allocate_doubly_blocks (struct inode_disk *inode UNUSED,
   return 0;
 }
 
-
 static bool
 extend_file (struct inode_disk *inode, size_t new_size)
 {
@@ -224,7 +223,10 @@ extend_file (struct inode_disk *inode, size_t new_size)
       return true;
     }
   else
+  {
+    PANIC ("fuck us");
     ASSERT (4 == 5);
+  }
 
   return true;
 }
@@ -460,6 +462,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
+
       cache_write (sector_idx, buffer + bytes_written, sector_ofs, chunk_size);
       
       /* Advance. */
