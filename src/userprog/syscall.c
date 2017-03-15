@@ -91,6 +91,7 @@ validate_address (void *address, size_t size)
   if (!start)
     sys_exit (-1);
 
+
   if (is_kernel_vaddr (start) || is_kernel_vaddr (end))
     sys_exit (-1);
 
@@ -420,12 +421,16 @@ sys_mkdir (char *dir)
 static bool
 sys_readdir (int fd, char *name)
 {
-  validate_string (name);
+
+  // TODO validate name
+  validate_address ((void **) name, 14);
+  syscall_acquire_filesys_lock ();
   struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
   if (fd_ == NULL)
     return false;
 
   struct inode *ino = file_get_inode (fd_->f);
+  
   if (ino == NULL)
     return false;
 
@@ -436,6 +441,8 @@ sys_readdir (int fd, char *name)
   bool success = dir_readdir (d, name);
 
   dir_close (d);
+
+  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -481,6 +488,7 @@ syscall_handler (struct intr_frame *f)
 {
   int *esp = f->esp;
   validate_address (esp, sizeof (void *));
+
 
   switch (*esp)
     {
@@ -547,7 +555,7 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_READDIR:
       validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
-      f->eax = sys_readdir (esp[ONE_ARG], ((char **)esp)[ONE_ARG]);
+      f->eax = sys_readdir (esp[ONE_ARG], ((char **)esp)[TWO_ARG]);
       break;
     case SYS_ISDIR:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
