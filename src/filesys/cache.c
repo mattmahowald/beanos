@@ -30,7 +30,6 @@ static size_t clock_hand;
 static struct condition flush_complete;
 static struct lock flusher_lock;
 static bool done;
-static struct semaphore flusher_killed;
 static struct cache_entry *entry_array;
 
 void 
@@ -44,7 +43,6 @@ cache_init ()
   cond_init (&flush_complete);
   lock_init (&cache_lock);
   lock_init (&flusher_lock);
-  sema_init (&flusher_killed, 0);
   done = false;
   clock_hand = 0;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
@@ -57,11 +55,6 @@ flush_thread (void *aux UNUSED)
     {
       timer_sleep (30);
       lock_acquire (&flusher_lock);
-      if (done)
-      {
-        sema_up (&flusher_killed);
-        return;
-      }
       lock_acquire (&cache_lock);
       size_t size = hash_size (&buffer_cache);
       lock_release (&cache_lock);
@@ -81,7 +74,10 @@ flush_thread (void *aux UNUSED)
         }
       lock_release (&flusher_lock);
       if (done)
+      {
+        free (entry_array);
         return;
+      }
     }
 }
 
