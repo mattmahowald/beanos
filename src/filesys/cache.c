@@ -45,7 +45,7 @@ cache_init ()
   lock_init (&flusher_lock);
   done = false;
   clock_hand = 0;
-  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  // thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
 
 static void
@@ -237,9 +237,14 @@ free_hash_entry (struct hash_elem *e, void *aux UNUSED)
 void 
 cache_cleanup () 
 {
-  lock_acquire (&flusher_lock);
-  done = true;
-  lock_release (&flusher_lock);
+  // lock_acquire (&flusher_lock);
+  // done = true;
+  // lock_release (&flusher_lock);
+  size_t i = 0;
+  for (i = 0; i < hash_size(&buffer_cache); i++)
+    {
+      block_write (fs_device, entry_array[i].sector, &entry_array[i].data);
+    }
   hash_destroy (&buffer_cache, free_hash_entry);
 }
 
