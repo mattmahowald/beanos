@@ -8,6 +8,13 @@ struct fd_to_file
     struct list_elem elem;
   };
 
+struct fd_to_dir
+	{
+		int fd;
+		struct dir *dir;
+		struct list_elem elem;
+	};
+
 void syscall_init (void);
 void sys_exit (int status);
 void syscall_acquire_filesys_lock (void);

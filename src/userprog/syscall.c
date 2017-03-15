@@ -40,6 +40,7 @@ static bool sys_isdir (int fd);
 static int sys_inumber (int fd);
 
 static struct fd_to_file *get_file_struct_from_fd (int fd);
+static struct fd_to_dir *get_dir_struct_from_fd (int fd);
 static int allocate_fd (void);
 
 static struct lock filesys_lock; 
@@ -212,25 +213,33 @@ sys_open (const char *file)
 {
   validate_string (file);
 
+  bool isdir;
+
   syscall_acquire_filesys_lock ();
-  struct file *f = filesys_open (file);
+  void *data = filesys_open (file, &isdir);
   syscall_release_filesys_lock ();
-  if (!f)
+  if (!data)
     return -1; 
 
-  /* Define a fd_to_file struct for the process to lookup by fd. */
-  struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
-  if (!user_file)
+  struct fd_to_file *fd_to_data = malloc (sizeof (struct fd_to_file));
+  if (!fd_to_data)
     return -1;
+  fd_to_data->fd = allocate_fd ();
 
+  if (isdir)
+    {
+      ((struct fd_to_dir *) fd_to_data)->dir = (struct dir *) data;
+      list_push_back (&thread_current ()->directories, 
+                      &((struct fd_to_dir *) &fd_to_data)->elem);
+    } 
+  else
+    {
+      /* Define a fd_to_file struct for the process to lookup by fd. */
+      fd_to_data->f = (struct file *) data;
+      list_push_back (&thread_current ()->files, &fd_to_data->elem);
+    }
 
-
-  user_file->f = f;
-  user_file->fd = allocate_fd ();
-
-  list_push_back (&thread_current ()->files, &user_file->elem);
-
-  return user_file->fd;
+  return fd_to_data->fd;
 }
 
 /* System call filesize(fd) gets the filesize of the file corresponding
@@ -451,29 +460,17 @@ sys_readdir (int fd, char *name)
 static bool
 sys_isdir (int fd)
 {
-  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
-  if (fd_ == NULL)
-    return false;
-
-  struct inode *ino = file_get_inode (fd_->f);
-  if (ino == NULL)
-    return false;
-
-  return inode_isdir (ino);
+  return get_dir_struct_from_fd (fd) != NULL;
 }
 
 static int 
 sys_inumber (int fd)
 {
-  struct fd_to_file *fd_ = get_file_struct_from_fd (fd);
+  struct fd_to_dir *fd_ = get_dir_struct_from_fd (fd);
   if (fd_ == NULL)
-    return false;
+    return -1;
 
-  struct inode *ino = file_get_inode (fd_->f);
-  if (ino == NULL)
-    return false;
-
-  return inode_get_inumber (ino);
+  return dir_get_inumber (fd_->dir);
 }
 
 #define ONE_ARG 1
@@ -488,7 +485,6 @@ syscall_handler (struct intr_frame *f)
 {
   int *esp = f->esp;
   validate_address (esp, sizeof (void *));
-
 
   switch (*esp)
     {
@@ -596,6 +592,23 @@ get_file_struct_from_fd (int fd)
       struct fd_to_file *file = list_entry (file_e, struct fd_to_file, elem);
       if (file->fd == fd)
         return file;
+    }
+  return NULL; 
+}
+
+/* Given an fd, finds the dir pointer through the current process's open
+   dir list. */
+static struct fd_to_dir *
+get_dir_struct_from_fd (int fd)
+{
+  struct list_elem *dir_e;
+  struct list *dirs = &thread_current ()->directories;
+  for (dir_e = list_begin (dirs); dir_e != list_end (dirs); 
+       dir_e = list_next (dir_e))
+    {
+      struct fd_to_dir *d = list_entry (dir_e, struct fd_to_dir, elem);
+      if (d->fd == fd)
+        return d;
     }
   return NULL; 
 }

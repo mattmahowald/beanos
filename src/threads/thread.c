@@ -490,11 +490,12 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Initialize userprogram data. */
   list_init (&t->files); 
+  list_init (&t->directories);
   list_init (&t->children);
   sema_init (&t->loaded, 0);
   sema_init (&t->ready_to_start, 0);
   t->load_success = true;
-  
+
   if (t != initial_thread && strcmp (name, "idle"))
     t->cwd = dir_reopen (thread_current ()->cwd);
 

@@ -360,7 +360,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   /* Open executable file. */ 
   syscall_acquire_filesys_lock ();
-  file = filesys_open (filename);
+  file = (struct file *) filesys_open (filename, NULL);
   syscall_release_filesys_lock ();
   if (file == NULL) 
     {

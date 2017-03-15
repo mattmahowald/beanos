@@ -22,6 +22,7 @@ struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
 void dir_close (struct dir *);
 struct inode *dir_get_inode (struct dir *);
+int dir_get_inumber (struct dir *);
 
 /* Reading and writing. */
 struct dir *dir_lookup_path (char *pathname);

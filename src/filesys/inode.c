@@ -101,6 +101,8 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
 bool
 inode_isdir (struct inode *inode)
 {
+  if (inode == NULL)
+    return false;
   return inode->dir;
 }
 

@@ -100,6 +100,7 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 
     struct list files;                  /* List of open files. */
+    struct list directories;            /* List of open directories. */
     struct file *exec_file;             /* Read only executable. */
 
     struct list children;               /* List of child threads. */

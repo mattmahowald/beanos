@@ -161,6 +161,16 @@ lookup (const struct dir *dir, const char *name,
   return false;
 }
 
+int 
+dir_get_inumber (struct dir *dir)
+{
+  struct inode *inode = dir_get_inode (dir);
+  if (inode == NULL)
+    return -1;
+  return inode_get_inumber (inode);
+}
+
+
 
 /* Searches DIR for a file with the given NAME
    and returns true if one exists, false otherwise.
