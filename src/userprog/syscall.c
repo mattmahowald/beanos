@@ -445,8 +445,6 @@ sys_readdir (int fd, char *name)
     return false;
 
   bool success = dir_readdir (fd_->dir, name);
-
-
   return success;
 }
 
@@ -460,11 +458,19 @@ sys_isdir (int fd)
 static int 
 sys_inumber (int fd)
 {
-  struct fd_to_dir *fd_ = get_dir_struct_from_fd (fd);
-  if (fd_ == NULL)
+  struct fd_to_file *fd_file = get_file_struct_from_fd (fd);
+  if (fd_file)
+    {
+      struct inode *inode = file_get_inode (fd_file->f);
+      if (inode == NULL)
+        return -1;
+      return inode_get_inumber (inode);
+    }
+  struct fd_to_dir *fd_dir = get_dir_struct_from_fd (fd);
+  if (fd_dir == NULL)
     return -1;
 
-  return dir_get_inumber (fd_->dir);
+  return dir_get_inumber (fd_dir->dir);
 }
 
 #define ONE_ARG 1

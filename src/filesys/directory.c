@@ -244,6 +244,8 @@ dir_lookup_path (char *pathname)
   for(subdir = strtok_r (dirname, DELIMIT_SYMBOL, &save_ptr); subdir != NULL; 
                       subdir = strtok_r (NULL, DELIMIT_SYMBOL, &save_ptr)) 
     {
+      if (strlen (subdir) == 0)
+        continue;
       if (!dir_lookup (cur_dir, subdir, &inode))
         {
           dir_close (cur_dir);
@@ -366,8 +368,6 @@ bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
-
-
 
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
