@@ -68,6 +68,7 @@ struct inode
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     size_t length;
     bool dir;
+    struct lock lock;
   };
 
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
@@ -361,9 +362,9 @@ inode_close (struct inode *inode)
           // free_map_release (inode->data.start,
           //                   bytes_to_sectors (inode->data.length)); 
         } else { 
-          lock_acquire (inode->lock);
+          lock_acquire (&inode->lock);
           cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
-          lock_release (inode->lock);
+          lock_release (&inode->lock);
         }
 
       free (inode); 

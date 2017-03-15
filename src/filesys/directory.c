@@ -29,7 +29,8 @@ bool
 dir_create_root (size_t entry_cnt)
 {
   struct dir root_dir;
-  if (!inode_is_inode (ROOT_DIR_SECTOR) && !inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry), ISDIR))
+  
+  if (!inode_create (ROOT_DIR_SECTOR, entry_cnt * sizeof (struct dir_entry), ISDIR))
     return false;
 
   root_dir.inode = inode_open (ROOT_DIR_SECTOR);
