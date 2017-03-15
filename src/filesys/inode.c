@@ -136,22 +136,21 @@ inode_init (void)
 }
 
 static size_t
-allocate_direct_blocks (struct inode_disk *inode, size_t start_sectors, size_t end_sectors)
+allocate_direct_blocks (struct inode_disk *inode, size_t start_sectors, 
+                        size_t end_sectors)
 {
   if (start_sectors >= NUM_DIRECT)
     return 0;
 
   size_t end_direct = end_sectors > NUM_DIRECT ? NUM_DIRECT : end_sectors;
   size_t num_direct = end_direct - start_sectors;
-  if (!free_map_allocate_not_consecutive (num_direct, &inode->direct[start_sectors]))
+  if (!free_map_allocate_not_consecutive (num_direct, 
+                                          &inode->direct[start_sectors]))
     return 0;
 
   size_t sector;
   for (sector = start_sectors; sector < end_direct; sector++)
-    {
-      // printf("Set sector index %d to free sector %d\n", sector, inode->direct[sector]);
-      cache_write (inode->direct[sector], zeros, 0, BLOCK_SECTOR_SIZE);
-    }
+    cache_write (inode->direct[sector], zeros, 0, BLOCK_SECTOR_SIZE);
   return num_direct;
 }
 
@@ -181,10 +180,7 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors,
     }
   size_t sector;
   for (sector = start_indirect; sector < end_indirect; sector++)
-    {
-      cache_write (indirect->sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
-      // printf("Set sector index %d to free sector %d\n", sector + NUM_DIRECT, inode->direct[sector]);
-    }
+    cache_write (indirect->sectors[sector], zeros, 0, BLOCK_SECTOR_SIZE);
   cache_write (inode->indirect, indirect, 0, BLOCK_SECTOR_SIZE);
   
   free (indirect);
@@ -270,7 +266,6 @@ inode_create (block_sector_t sector, off_t length, bool isdir)
       // TODO free map free indirect blocks on failure too
       free (disk_inode);
     }
-  // printf("created\n");
   return success;
 }
 
@@ -280,7 +275,6 @@ inode_create (block_sector_t sector, off_t length, bool isdir)
 struct inode *
 inode_open (block_sector_t sector)
 {
-  // printf ("inode.c inode_open called\n");
   struct list_elem *e;
   struct inode *inode;
 
@@ -292,12 +286,9 @@ inode_open (block_sector_t sector)
       if (inode->sector == sector) 
         {
           inode_reopen (inode);
-          // printf ("inode.c inode_open done (found)\n");
-
           return inode; 
         }
     }
-  // printf ("inode.c inode_open found the inode\n");
 
   /* Allocate memory. */
   inode = malloc (sizeof *inode);
@@ -305,15 +296,14 @@ inode_open (block_sector_t sector)
     return NULL;
 
   /* Initialize. */
-  list_push_front (&open_inodes, &inode->elem);
   inode->sector = sector;
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
+  lock_init (&inode->lock);
   cache_read (sector, &inode->length, 0, sizeof (size_t));
   cache_read (sector, &inode->dir, BLOCK_SECTOR_SIZE - 4, sizeof (bool));
-
-  // printf ("inode.c inode_open done (created)\n");
+  list_push_front (&open_inodes, &inode->elem);
 
   return inode;
 }
@@ -322,9 +312,12 @@ inode_open (block_sector_t sector)
 struct inode *
 inode_reopen (struct inode *inode)
 {
-  // TODO sync this
   if (inode != NULL)
-    inode->open_cnt++;
+    {
+      lock_acquire (&inode->lock);
+      inode->open_cnt++;
+      lock_release (&inode->lock);
+    }
   return inode;
 }
 
@@ -345,7 +338,11 @@ inode_close (struct inode *inode)
   if (inode == NULL)
     return;
   /* Release resources if this was the last opener. */
-  if (--inode->open_cnt == 0)
+  lock_acquire (&inode->lock);
+  bool not_open = --inode->open_cnt == 0;
+  lock_release (&inode->lock);
+
+  if (not_open)
     {
       /* Remove from inode list and release lock. */
       list_remove (&inode->elem);
@@ -359,7 +356,9 @@ inode_close (struct inode *inode)
           // free_map_release (inode->data.start,
           //                   bytes_to_sectors (inode->data.length)); 
         } else { 
+          lock_acquire (inode->lock);
           cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
+          lock_release (inode->lock);
         }
 
       free (inode); 
@@ -373,7 +372,9 @@ inode_remove (struct inode *inode)
 {
   // TODO sync this up, if open cnt is 0 deallocate blocks
   ASSERT (inode != NULL);
+  lock_acquire (&inode->lock);
   inode->removed = true;
+  lock_release (&inode->lock);
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
