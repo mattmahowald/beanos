@@ -70,6 +70,7 @@ struct inode
     bool dir;
     struct lock lock;
     struct lock extension_lock;
+    struct lock dir_lock;
   };
 
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
@@ -414,6 +415,7 @@ inode_open (block_sector_t sector)
   inode->removed = false;
   lock_init (&inode->lock);
   lock_init (&inode->extension_lock);
+  lock_init (&inode->dir_lock);
   cache_read (sector, &inode->length, 0, sizeof (size_t));
   cache_read (sector, &inode->dir, BLOCK_SECTOR_SIZE - 4, sizeof (bool));
   list_push_front (&open_inodes, &inode->elem);
@@ -640,6 +642,18 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     }
 
   return bytes_written;
+}
+
+void
+inode_acquire_dir_lock (struct inode *inode)
+{
+  lock_acquire (&inode->dir_lock);
+}
+
+void
+inode_release_dir_lock (struct inode *inode)
+{
+  lock_release (&inode->dir_lock);
 }
 
 /* Disables writes to INODE.
