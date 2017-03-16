@@ -410,11 +410,28 @@ deallocate (struct inode *inode)
     {
       free_map_release (sector_index_to_sector (i, inode), 1);
     }
+  
   block_sector_t indirect;
   cache_read (inode->sector, &indirect, INDIRECT_OFFS, sizeof (block_sector_t));
+  free_map_release (indirect, 1);
+
   block_sector_t doubly_indirect;
   cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, sizeof (block_sector_t));
-  free_map_release (indirect, 1);
+  int num_doubly = length - NUM_DIRECT - NUM_INDIRECT;
+  if (num_doubly > 0)
+    {
+      struct indirect_block *doubly = malloc (sizeof *doubly);
+      cache_read (doubly_indirect, doubly, 0, BLOCK_SECTOR_SIZE);
+      for (i = 0; i < NUM_INDIRECT; i++)
+        {
+          block_sector_t sector = doubly->sectors[i];
+          if (sector)
+            free_map_release (doubly->sectors[i], 1);
+          else
+            break; /* Reached end of allocated if 0. */
+        }
+    }
+
   free_map_release (doubly_indirect, 1);
   if (inode->sector != 0 && inode->sector != 1) // TODO don't think we need this
     free_map_release (inode->sector, 1);
