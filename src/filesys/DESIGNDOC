@@ -1,8 +1,8 @@
-       	       	     +-------------------------+
-		     |		CS 140	       |
-		     | PROJECT 4: FILE SYSTEMS |
-		     |	   DESIGN DOCUMENT     |
-		     +-------------------------+
+         +-------------------------+
+         |         CS 140          |
+         | PROJECT 4: FILE SYSTEMS |
+         |     DESIGN DOCUMENT     |
+         +-------------------------+
 
 ---- GROUP ----
 
@@ -20,8 +20,8 @@ Matt Mahowald <mcm2018@stanford.edu>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
-		     INDEXED AND EXTENSIBLE FILES
-		     ============================
+         INDEXED AND EXTENSIBLE FILES
+         ============================
 
 ---- DATA STRUCTURES ----
 
@@ -71,8 +71,8 @@ implementation uses 124 direct blocks, 1 * 128 indirect blocks, and
 
 
 
-			    SUBDIRECTORIES
-			    ==============
+          SUBDIRECTORIES
+          ==============
 
 ---- DATA STRUCTURES ----
 
@@ -80,12 +80,20 @@ implementation uses 124 direct blocks, 1 * 128 indirect blocks, and
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
 
-We used str_tok_r to iterate over the directory names in a path.
+First, we split the user specified path into the 'path' and the file 
+itself, using strtok_r. For example, '/a/b/c' would get broken into '/a/b'
+and 'c'. To get the 
+
+If the first character of the path is '/', we set the directory to root.
+Else, we set the directory to that process's current working directory.
+From there, we used strtok_r to iterate over the directory names in a path.
 The function leverages dir_lookup and lookup, implemented in
 the starter code. The traversals only differ in setting the start 
 directory, then iteration runs from there. 
@@ -122,8 +130,8 @@ at which point the cwd process is complete.
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
 
-			     BUFFER CACHE
-			     ============
+           BUFFER CACHE
+           ============
 
 ---- DATA STRUCTURES ----
 
@@ -131,45 +139,122 @@ at which point the cwd process is complete.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+*** cache.h ***
+
+/* An array of cache_entry structs forms the foundation of our cache. These
+   structs hold the block sector data themselves, as well as some meta 
+   information about to block. */
+
+struct cache_entry
+{
+  struct hash_elem elem;           /* List elem. */
+  block_sector_t sector;           /* Block sector whose data is held. */
+  uint8_t data[BLOCK_SECTOR_SIZE]; /* Actual block data from disk. */
+  uint8_t flags;                   /* Holds ACCESSED and DIRTY. */
+  struct lock lock;                /* Lock for synch. */
+};
+
+/* A hash of hash_entry structs tracks those sectors currently active in the
+   buffer cache. This struct allows our cache to find the physical location of
+   that sector in the cache_entry array with array_index. */
+
+struct hash_entry
+{
+  struct hash_elem elem;           /* Hash elem. */
+  block_sector_t sector;           /* Block sector. */
+  size_t array_index;              /* Index into cache_entry array. */
+};
+
+/* A hash of flush_entry structs tracks those sectors that may not be present
+   in the cache_buffer_hash, but are currently being flushed back to disk. */
+
+struct flush_entry
+{
+  struct hash_elem elem;           /* Hash elem. */
+  block_sector_t sector;           /* Block sector. */
+};
+
+*** cache.c ***
+
+static struct lock cache_lock;          /* Course lock for entire cache. */
+static struct hash buffer_cache;        /* Holds sectors in cache array. */
+static struct hash flush_entries;       /* Holds sectors in flush. */
+static size_t clock_hand;               /* Position of clock hand. */
+static struct lock flusher_lock;        /* Synchs flusher with cleanup. */
+static bool done;                       /* Let's flusher know to die. */
+static struct cache_entry *entry_array; /* Actual cache array. */
+static struct semaphore read_sema;      /* Signals read-ahead to read. */
+static struct lock read_ahead_lock;     /* Synchs read-ahead list. */
+static struct list read_ahead_list;     /* Read-ahead list. */
+static struct condition flush_complete; /* Broadcasts that flush is done. */
+
+/* List of struct read_blocks lets read-ahead thread bring specified sector
+   into the cache. */
+
+struct read_block
+{
+  block_sector_t to_read;               /* Sector to bring in to cache. */
+  struct list_elem elem;                /* List elem. */
+}; 
+
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
 
-We use the simple clock hand algorithm to implement a second chance
-eviction method. While holding the lock over the entire cache, we
-iterate through the buffer, trying to acquire each entry's lock.
-If acquired, we check the accessed flag to determine if the block
-is evictable. If it is true, we flip the bit, release the lock, and
-continue with the iteration. If the block has not been accessed, 
-and the block is not being used (indicated by num_users == 0), we
-begin the eviction process. First, we remove the entry from the 
-cache so no other will assume it is still in the cache, then we
-release the cache lock. Finally, if the entry has been dirtied, 
-we flush the data, as described in C3's write-behind description.
+We chose to implement eviction using the second chance clock algorithm. In our
+evict method, we cycle through the cache_entry array (with the coarse 
+cache_lock held). We lock_try_acquire each entry's entry_lock (if the lock is 
+held, that block is likely involved in some sort of I/O and we don't want to 
+wait on it). If acquired, we check the ACCESSED flag. If true, we set to 
+false and continue to the next entry. If false, we have found our entry to 
+evict.
 
 >> C3: Describe your implementation of write-behind.
 
-We write-behind on three occasions: 1) on eviction; 2) on process
-exit; 3) interspersed by a background "flusher" thread.
+We only ever write back to disk on three occasions: 1) on eviction; 
+2) on shutdown; 3) interspersed by our background "flusher" thread.
 
 On eviction, after determining the cache entry has been dirtied,
-we add the entry to the "flush_entries" hash. The purpose of this
-step is to ensure that other processes wait to read from disk
-until the entry has been flushed (it is no longer in the cache, so
-the changes can only be found once the entry has flushed). We 
-accomplish this using the condition flush_complete. After the 
+we remove the hash from the buffer_cache hash and add the entry to the 
+flush_entries hash. The purpose of this step is to ensure that other 
+processes wait to read from disk until the entry has been flushed 
+(it is no longer in the cache, so the changes can only be found once the entry
+has flushed). We accomplish this using the condition flush_complete. After the 
 entry has been added to the flush_entries hash, our implementation
 releases the cache_lock, writes to disk, then broadcasts to the
 condition's waiters.
 
-+++ On process exit, we fuck shit up.
+We also create a "flusher" thread that sleeps some predetermined time,
+in our case 30 seconds, and then cycles through each cache entry, acquires its
+lock, and writes back to disk if dirty. Because we iterate over the array 
+itself and not through the buffer_cache hash, we never have to hold the 
+course cache_lock.
 
-Our background thread sleeps for a predetermined period, then 
-iterates over our entire buffer cache (+++ WITHOUT RELEASING
-THE CACHE LOCK) and writing the dirtied blocks to disk.
+On pintos shutdown, in cache_cleanup, we tell the flusher and reader threads
+to die by setting "done" to true. Then, we manually cycle through the cache 
+array and write every dirty block back to disk. This step is necessary, as 
+blocks may have been changed or dirtied since the last flusher cycle. 
 
 >> C4: Describe your implementation of read-ahead.
+
+To implement read-ahead, we created a new thread, "reader", which sema-downs
+its read_sema, blocking until a sector has been added to the read_list. 
+
+Meanwhile, at the end of any call to inode_read_at, we check to see if the 
+next block of the inode is within the inode's length. If it is, we call 
+cache_add_to_read_ahead. This method adds that next sector to the read_list
+and sema_ups the read_sema. This signals our background reader thread that
+there is a sector to be read. Reader calls cache_read on the specified 
+sectors, so if that sector has been added in the meantime, nothing will
+happen. Otherwise, it will be added to the cache.
+
+Per our conversation with Mahesh at OH, we decided to read ahead only at the
+end of inode_read_at instead of on every call to cache_read. This results in 
+the exact same behavior as reading ahead on every call (if a file asks to read
+5 sectors, 6 will be brought into the cache) and reduces reader workload. 
+
 
 ---- SYNCHRONIZATION ----
 
@@ -177,27 +262,57 @@ THE CACHE LOCK) and writing the dirtied blocks to disk.
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
-Initially, we planned on using a pin flag similar to that in frame
-eviction in vm, however we quickly realized that having a boolean
-flag limited usage to one user. Ultimately, we chose to use an 
-integer to keep track of the number of users modifying a cache entry,
-which we ensure is equal to 0 on eviction.
+Each cache block has a lock. This lock is always held while we memset 
+data to or from a block's data. While only one thread can memset to or from a
+block at a time, this duration is inconsequential (compared to an I/O read).
+We could have added a num_readers field and condition variables to allow 
+multiple block readers to memset concurrently, but we felt that the added 
+code complexity and additional required tests and steps would have ultimately
+proved counter-productive. 
+
+In order to evict a block, the evict method must first lock_try_acquire that 
+blocks lock. If one process is actively reading / writing, lock acquisition
+will fail and the evicter will move on to the next block.
 
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
 
-The entry is removed from the cache hash table. +++ NECESSARY ??? One caveat arises 
-when a process waits for an entry to be flushed. If the process is not
-the first process to attempt to bring the entry back into the hash table,
-we do not need to bring it back.
+When an entry is chosen for eviction, it is removed from the buffer_cache 
+hash. From here, it will follow two paths, one if it isn't dirty, and another
+if it is. 
+
+If it isn't dirty, the cache_lock is held until the new entry is added 
+back to the buffer_cache. No other thread will be able to seach the cache 
+until these steps are completed. So once it has been chosen for eviction, no
+other thread will see it in the cache. If another process wants to add it back
+to the cache, it can do so. The block on disk is up to date. 
+
+If it is dirty, we add it to the flush hash before
+releasing the cache_lock. This way, if another process attempts access it,
+it will check to see that it is currently being flushed and wait on the flush
+condition to be broadcasted. It cannot attempt to add it back to the cache 
+yet, as the block on disk hasn't yet been updated. Once it sees that it has 
+been flushed (no longer in flush hash), it can proceed without worry. 
+
 
 ---- RATIONALE ----
 
 >> C7: Describe a file workload likely to benefit from buffer caching,
 >> and workloads likely to benefit from read-ahead and write-behind.
 
-			   SURVEY QUESTIONS
-			   ================
+Any file workload with repeated accesses in close proximity to the same 
+blocks will benefit from buffer caching. Any file system that doesn't store
+inodes in memory will certainly benefit from caching, as those inodes are 
+very likely to be in the cache. 
+
+Workloads that access files sequentially (a fairly common occurance) certainly
+benefit from read-ahead. 
+
+Workloads that modify files in multiple passes, or write very small chunks at
+a time (i.e. smaller than BLOCK_SIZE), will benefit from write-behind.
+
+         SURVEY QUESTIONS
+         ================
 
 Answering these questions is optional, but it will help us improve the
 course in future quarters.  Feel free to tell us anything you
