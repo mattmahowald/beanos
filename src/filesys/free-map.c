@@ -28,6 +28,8 @@ free_map_init (void)
 bool
 free_map_allocate (size_t cnt, block_sector_t *sectorp)
 {
+  if (cnt == 0)
+    PANIC ("THIS FUCKS US SO HARD");
   block_sector_t sector = bitmap_scan_and_flip (free_map, 0, cnt, false);
   if (sector != BITMAP_ERROR
       && free_map_file != NULL
@@ -45,7 +47,8 @@ bool
 free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 {
   size_t i = 0;
-
+  if (cnt == 0)
+    PANIC ("FUCKKKK");
   if (free_map_allocate (cnt, sector))
   {
     for (i = 0; i < cnt; i++)
@@ -85,6 +88,8 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 void
 free_map_release (block_sector_t sector, size_t cnt)
 {
+  if (cnt == 0)
+    printf("FURRRKR\n");
   ASSERT (sector + cnt <= bitmap_size (free_map));
   ASSERT (bitmap_all (free_map, sector, cnt));
   bitmap_set_multiple (free_map, sector, cnt, false);

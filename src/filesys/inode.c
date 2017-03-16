@@ -221,11 +221,16 @@ allocate_doubly_blocks (struct inode_disk *inode,
 
   if (end_sectors <= NUM_DIRECT + NUM_INDIRECT)
     goto done;
+  
+  printf("Allocating doubly blocks from %d to %d\n", start_sectors, end_sectors);
+
   /* Index in doubly blocks of last already allocated sector. */
   size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
   
   /* Index in doubly blocks of last index necessary to allocate. */
   size_t end_offset = end_sectors - NUM_DIRECT - NUM_INDIRECT;
+
+  printf("Start offset is %d, end is %d\n", start_offset, end_offset);
 
   /* Read current doubly indirect sector into doubly_indirect. */
   doubly_indirect = malloc (sizeof *doubly_indirect);
@@ -247,15 +252,19 @@ allocate_doubly_blocks (struct inode_disk *inode,
   
   size_t num_indirect = last_indirect - first_indirect;
 
+  printf("First indirect: %d, last_indirect: %d, num_indirect: %d\n", first_indirect, last_indirect, num_indirect);
+
   /* If not clean break for new indirect, we'll have to go in and edit an already allocated indirect block. */
   size_t start = start_offset % NUM_INDIRECT;
   bool read = start != 0;
 
   /* Allocate sectors for our new indirect blocks. */ 
-  size_t to_allocate = read ? num_indirect - 1 : num_indirect;
+  int to_allocate = read ? num_indirect - 1 : num_indirect;
   size_t first_new_indirect = read ? first_indirect + 1 : first_indirect;
 
-  if (num_indirect && !free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
+  printf("Allocating %d new indirect sectors starting at %d\n", to_allocate, first_new_indirect);
+
+  if (num_indirect > 0 && !free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
     goto done;
 
   size_t indirect_index;
