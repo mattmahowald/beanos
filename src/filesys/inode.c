@@ -538,6 +538,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 {
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
+  size_t length = inode_length (inode);
 
   while (size > 0) 
     {
@@ -546,7 +547,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
-      off_t inode_left = inode_length (inode) - offset;
+      off_t inode_left = length - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = inode_left < sector_left ? inode_left : sector_left;
 
@@ -554,9 +555,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
-      
+
       cache_read (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
-      
+
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
@@ -628,8 +629,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
+
       cache_write (sector_idx, buffer + bytes_written, sector_ofs, chunk_size);
-      
+
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
