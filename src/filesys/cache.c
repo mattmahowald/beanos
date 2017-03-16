@@ -24,22 +24,24 @@ unsigned flush_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool flush_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                  void *aux UNUSED);
 
-static struct lock cache_lock;
-static struct hash buffer_cache;
-static struct hash flush_entries;
-static size_t clock_hand;
-static struct condition flush_complete;
-static struct lock flusher_lock;
-static bool done;
-static struct cache_entry *entry_array;
-static struct semaphore read_sema;
-static struct lock read_ahead_lock;
-static struct list read_ahead_list;
+static struct lock cache_lock;          /* Course lock for entire cache. */
+static struct hash buffer_cache;        /* Holds sectors in cache array. */
+static struct hash flush_entries;       /* Holds sectors in flush. */
+static size_t clock_hand;               /* Position of clock hand. */
+static struct lock flusher_lock;        /* Synchs flusher with cleanup. */
+static bool done;                       /* Let's flusher know to die. */
+static struct cache_entry *entry_array; /* Actual cache array. */
+static struct semaphore read_sema;      /* Signals read-ahead to read. */
+static struct lock read_ahead_lock;     /* Synchs read-ahead list. */
+static struct list read_ahead_list;     /* Read-ahead list. */
+static struct condition flush_complete; /* Broadcasts that flush is done. */
 
+/* List of struct read_blocks lets read-ahead thread bring specified sector
+   into the cache. */
 struct read_block
 {
-  block_sector_t to_read;
-  struct list_elem elem;
+  block_sector_t to_read;               /* Sector to bring in to cache. */
+  struct list_elem elem;                /* List elem. */
 }; 
 
 void 
@@ -54,6 +56,7 @@ cache_init ()
   list_init (&read_ahead_list);
   sema_init (&read_sema, 0);
   lock_init (&read_ahead_lock);
+  cond_init (&flush_complete);
   done = false;
   clock_hand = 0;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
@@ -140,6 +143,9 @@ flush (struct cache_entry *entry)
 static size_t
 evict ()
 {
+
+  ASSERT (lock_held_by_current_thread (&cache_lock));
+
   struct cache_entry *evicted = NULL;
   size_t index;
   while (evicted == NULL)
@@ -288,7 +294,8 @@ cache_cleanup ()
   size_t i = 0;
   for (i = 0; i < hash_size(&buffer_cache); i++)
     {
-      block_write (fs_device, entry_array[i].sector, &entry_array[i].data);
+      if (entry_array[i].flags & DIRTY)
+        block_write (fs_device, entry_array[i].sector, &entry_array[i].data);
     }
   free (entry_array);
   hash_destroy (&buffer_cache, free_hash_entry);
