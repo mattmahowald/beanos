@@ -198,6 +198,16 @@ dispose_resources (struct thread *cur)
       intr_set_level (old_level);
       free (file);        
     }
+  struct list *dirs = &cur->directories;
+  while (!list_empty (dirs))
+    {
+      struct list_elem *e = list_pop_front (dirs);
+      struct fd_to_dir *dir = list_entry (e, struct fd_to_dir, elem);
+      enum intr_level old_level = intr_disable ();
+      dir_close (dir->dir);
+      intr_set_level (old_level);
+      free (dir);        
+    }
 }
 
 /* Free the current process's resources. */
