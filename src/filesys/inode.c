@@ -69,6 +69,7 @@ struct inode
     size_t length;
     bool dir;
     struct lock lock;
+    struct lock extension_lock;
   };
 
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
@@ -134,7 +135,10 @@ inode_isdir (struct inode *inode)
 size_t
 inode_num_open (struct inode *inode)
 {
-  return inode->open_cnt;
+  lock_acquire (&inode->lock);
+  size_t cnt = inode->open_cnt;
+  lock_release (&inode->lock);
+  return cnt;
 }
 
 /* Returns the block device sector that contains byte offset POS
@@ -297,17 +301,16 @@ allocate_doubly_blocks (struct inode_disk *inode,
     start = 0;
   }
 
-/* Write doubly indirect back to disk. */
-cache_write (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
+  /* Write doubly indirect back to disk. */
+  cache_write (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
 
-done:
+ done:
   if (doubly_indirect)
     free (doubly_indirect);
   if (temp_indirect)
     free (temp_indirect);
   return sectors_written;
 }
-
 
 static bool
 extend_file (struct inode_disk *inode, size_t new_size)
@@ -410,6 +413,7 @@ inode_open (block_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   lock_init (&inode->lock);
+  lock_init (&inode->extension_lock);
   cache_read (sector, &inode->length, 0, sizeof (size_t));
   cache_read (sector, &inode->dir, BLOCK_SECTOR_SIZE - 4, sizeof (bool));
   list_push_front (&open_inodes, &inode->elem);
@@ -487,12 +491,13 @@ inode_close (struct inode *inode)
   /* Release resources if this was the last opener. */
   lock_acquire (&inode->lock);
   bool not_open = --inode->open_cnt == 0;
+  if (not_open)
+    list_remove (&inode->elem);
   lock_release (&inode->lock);
 
   if (not_open)
     {
       /* Remove from inode list and release lock. */
-      list_remove (&inode->elem);
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
@@ -505,9 +510,7 @@ inode_close (struct inode *inode)
         }
       else
         {
-          lock_acquire (&inode->lock);
           cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
-          lock_release (&inode->lock);
         }
 
       free (inode); 
@@ -519,7 +522,6 @@ inode_close (struct inode *inode)
 void
 inode_remove (struct inode *inode) 
 {
-  // TODO sync this up, if open cnt is 0 deallocate blocks
   ASSERT (inode != NULL);
   lock_acquire (&inode->lock);
   inode->removed = true;
@@ -535,7 +537,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
 
-  // printf ("inode.c inode_read_at called\n");
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
@@ -559,7 +560,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       offset += chunk_size;
       bytes_read += chunk_size;
     }
-  // printf ("inode.c inode_read_at done\n");
 
   return bytes_read;
 }
@@ -573,30 +573,40 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 {
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
-  // printf ("inode.c inode_write_at called\n");
 
-  // TODO potentially sync this
+  lock_acquire (&inode->lock);
   if (inode->deny_write_cnt)
+  {
+    lock_release (&inode->lock);
     return 0;
-
-  if ((size_t) offset + size > inode->length) 
+  }
+  lock_acquire (&inode->extension_lock);
+  size_t length = inode->length;
+  bool extend = (size_t) offset + size > inode->length;
+  if (!extend)
+    lock_release (&inode->extension_lock);
+  
+  lock_release (&inode->lock);
+  if (extend)
     {
-      // printf ("time to extend");
       struct inode_disk *inode_disk = malloc (sizeof *inode_disk);
       if (!inode_disk)
-        return 0;
+        {
+          lock_release (&inode->extension_lock);
+          return 0;
+        }
+        
       cache_read (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       if (!extend_file (inode_disk, offset + size))
         {
           // TODO maybe do cleanup here
+          lock_release (&inode->extension_lock);
           free (inode_disk);
           return 0;
         }
+      length = (size_t) offset + size;
       cache_write (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       free (inode_disk);
-      inode->length = offset + size;
-      // printf("successfully extended\n");
-      // TODO synch the above
     }
   while (size > 0) 
     {
@@ -605,7 +615,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
-      off_t inode_left = inode_length (inode) - offset;
+      off_t inode_left = length - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = inode_left < sector_left ? inode_left : sector_left;
 
@@ -621,6 +631,13 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       bytes_written += chunk_size;
     }
   // printf ("inode.c inode_write_at done\n");
+  if (extend)
+    {
+      lock_acquire (&inode->lock);
+      inode->length = length;
+      lock_release (&inode->lock);
+      lock_release (&inode->extension_lock);
+    }
 
   return bytes_written;
 }
@@ -630,8 +647,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 void
 inode_deny_write (struct inode *inode) 
 {
-  // TODO sync this
+  lock_acquire (&inode->lock);
   inode->deny_write_cnt++;
+  lock_release (&inode->lock);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
 
@@ -644,14 +662,17 @@ inode_allow_write (struct inode *inode)
   // TODO sync this as well
   ASSERT (inode->deny_write_cnt > 0);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
+  lock_acquire (&inode->lock);
   inode->deny_write_cnt--;
+  lock_release (&inode->lock);
 }
 
 /* Returns the length, in bytes, of INODE's data. */
 off_t
-inode_length (const struct inode *inode)
+inode_length (struct inode *inode)
 {
-  // TODO remove the length field from inode
-  // TODO potentially sync this
-  return inode->length;
+  lock_acquire (&inode->lock);
+  size_t len = inode->length;
+  lock_release (&inode->lock);
+  return len;
 }
