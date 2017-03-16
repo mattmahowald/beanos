@@ -281,7 +281,7 @@ allocate_doubly_blocks (struct inode_disk *inode,
       cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
     
     /* Allocate direct blocks in temporary indirect block. */
-    if (!free_map_allocate_not_consecutive (total, &temp_indirect->sectors[start]))
+    if (total > 0 && !free_map_allocate_not_consecutive (total, &temp_indirect->sectors[start]))
       goto done;
     
     /* Write zeros to each newly allocated sector. */
