@@ -287,15 +287,9 @@ allocate_doubly_blocks (struct inode_disk *inode,
   if (end_sectors <= NUM_DIRECT + NUM_INDIRECT)
     goto done;
   
-  // printf("Allocating doubly blocks from %d to %d\n", start_sectors, end_sectors);
-
-  /* Index in doubly blocks of last already allocated sector. */
+  /* Index in doubly blocks of last existing and last to allocate sector. */
   size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
-  
-  /* Index in doubly blocks of last index necessary to allocate. */
   size_t end_offset = end_sectors - NUM_DIRECT - NUM_INDIRECT;
-
-  // printf("Start offset is %d, end is %d\n", start_offset, end_offset);
 
   /* Read current doubly indirect sector into doubly_indirect. */
   doubly_indirect = malloc (sizeof *doubly_indirect);
@@ -304,49 +298,43 @@ allocate_doubly_blocks (struct inode_disk *inode,
 
   cache_read (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
 
-  /* Allocate temporary indirect block to hold newly allocated direct sectors. */
+  /* Allocate temporary indirect block to hold newly allocated direct. */
   temp_indirect = malloc (sizeof *temp_indirect);
   if (!temp_indirect)
     goto done;
 
-  /* Index of first indirect block in the doubly block that we'll need to edit. */
+  /* Index of first and last indirect blocks in the doubly block to edit. */
   size_t first_indirect = start_offset / NUM_INDIRECT;
-
-  /* Index of last indirect block in the doubly block that we'll need to add. */
   size_t last_indirect = end_offset / NUM_INDIRECT;
-  
   size_t to_allocate = last_indirect - first_indirect;
   if (first_indirect % NUM_INDIRECT == 0)
     to_allocate++;
-
-  // printf("First indirect: %d, last_indirect: %d, allocating: %d\n", first_indirect, last_indirect, to_allocate);
 
   /* If not clean break for new indirect, we'll have to go in and edit an already allocated indirect block. */
   size_t start = start_offset % NUM_INDIRECT;
   bool read = start != 0;
 
   /* Allocate sectors for our new indirect blocks. */ 
-  // int to_allocate = read ? num_indirect - 1 : num_indirect;
   size_t first_new_indirect = read ? first_indirect + 1 : first_indirect;
 
-  // printf("Allocating %d new indirect sectors starting at %d\n", to_allocate, first_new_indirect);
-
-  if (to_allocate > 0 && !free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
+  if (to_allocate > 0 && !free_map_allocate_not_consecutive (to_allocate, 
+                               &doubly_indirect->sectors[first_new_indirect]))
     goto done;
 
   size_t indirect_index;
   for (indirect_index = first_indirect; indirect_index <= last_indirect; indirect_index++)  
   {
     /* Handle case where last block might not be entirely filled. */
-    size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT : NUM_INDIRECT;
-    
-    /* Handle case where first block might already be partially filled. */
-    size_t total = end - start;
+    size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT 
+                                                 : NUM_INDIRECT;
+
+    size_t total = end - start; /* partially filled first block. */
     if (read)
       cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
     
     /* Allocate direct blocks in temporary indirect block. */
-    if (total > 0 && !free_map_allocate_not_consecutive (total, &temp_indirect->sectors[start]))
+    if (total > 0 && !free_map_allocate_not_consecutive (total, 
+                                    &temp_indirect->sectors[start]))
       goto done;
     
     /* Write zeros to each newly allocated sector. */
@@ -355,8 +343,8 @@ allocate_doubly_blocks (struct inode_disk *inode,
       cache_write (temp_indirect->sectors[i], zeros, 0, BLOCK_SECTOR_SIZE);
     
     /* Write temporary indirect block back to doubly indirect sector. */
-    cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
-    
+    cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, 
+                 BLOCK_SECTOR_SIZE);
     sectors_written += total;
     read = false;
     start = 0;
@@ -371,34 +359,6 @@ allocate_doubly_blocks (struct inode_disk *inode,
   if (temp_indirect)
     free (temp_indirect);
   return sectors_written;
-}
-
-static bool
-extend_file (struct inode_disk *inode, size_t new_size)
-{
-  size_t num_start_sectors = DIV_ROUND_UP (inode->length, BLOCK_SECTOR_SIZE);
-  size_t num_end_sectors = DIV_ROUND_UP (new_size, BLOCK_SECTOR_SIZE);
-  ASSERT (num_start_sectors <= num_end_sectors);
-  if (num_start_sectors == num_end_sectors)
-    {
-      inode->length = new_size;
-      return true;
-    }
-  
-  size_t num_allocated = 
-    allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) 
-    + allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors)
-    + allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
-  
-  if (num_allocated == (num_end_sectors - num_start_sectors))
-    {
-      inode->length = new_size;
-      return true;
-    }
-  else
-    PANIC ("Should have allocated %d, instead allocated %d", num_end_sectors - num_start_sectors, num_allocated);
-
-  return true;
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -628,6 +588,34 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     cache_add_to_read_ahead (byte_to_sector(inode, offset));
   
   return bytes_read;
+}
+
+static bool
+extend_file (struct inode_disk *inode, size_t new_size)
+{
+  size_t num_start_sectors = DIV_ROUND_UP (inode->length, BLOCK_SECTOR_SIZE);
+  size_t num_end_sectors = DIV_ROUND_UP (new_size, BLOCK_SECTOR_SIZE);
+  ASSERT (num_start_sectors <= num_end_sectors);
+  if (num_start_sectors == num_end_sectors)
+    {
+      inode->length = new_size;
+      return true;
+    }
+  
+  size_t num_allocated = 
+    allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) 
+    + allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors)
+    + allocate_doubly_blocks (inode, num_start_sectors, num_end_sectors);
+  
+  if (num_allocated == (num_end_sectors - num_start_sectors))
+    {
+      inode->length = new_size;
+      return true;
+    }
+  else
+    PANIC ("Should have allocated %d, instead allocated %d", num_end_sectors - num_start_sectors, num_allocated);
+
+  return true;
 }
 
 static size_t
