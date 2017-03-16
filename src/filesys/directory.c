@@ -21,7 +21,6 @@ struct dir_entry
     block_sector_t inode_sector;        /* Sector number of header. */
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
-    bool dir;                           /* Is this a directory? */
   }; 
 
 /* Creates the root directory. Returns true if successful, false on failure. */
@@ -162,6 +161,7 @@ lookup (const struct dir *dir, const char *name,
   return false;
 }
 
+/* Returns the inumber associated with a dir. */
 int 
 dir_get_inumber (struct dir *dir)
 {
@@ -170,8 +170,6 @@ dir_get_inumber (struct dir *dir)
     return -1;
   return inode_get_inumber (inode);
 }
-
-
 
 /* Searches DIR for a file with the given NAME
    and returns true if one exists, false otherwise.
@@ -197,6 +195,8 @@ dir_lookup (const struct dir *dir, const char *name,
 #define ROOT_SYMBOL '/'
 #define DELIMIT_SYMBOL "/"
 
+/* Splits PATH to the path to the directory DIRPATH and the trailing
+   symbol NAME representing the file or directory to operate on. */
 void 
 dir_split_path (const char *path, char *dirpath, char *name)
 {
@@ -222,11 +222,13 @@ dir_lookup_path (char *pathname)
 {
   struct dir *cur_dir;
   
+  /* Absolute path. */
   if(pathname[0] == ROOT_SYMBOL) 
     {
       cur_dir = dir_open_root ();
       pathname++;
     }
+  /* Relative path. */
   else
     {
       cur_dir = dir_reopen (thread_current ()->cwd);
@@ -234,23 +236,29 @@ dir_lookup_path (char *pathname)
         return cur_dir;
     }
   
-
   size_t len = strlen (pathname) + 1;
   char dirname[len];
   strlcpy (dirname, pathname, len);
   
   char *save_ptr, *subdir;
   struct inode *inode = NULL;
+
+  /* Iterate over items in the pathname. */
   for(subdir = strtok_r (dirname, DELIMIT_SYMBOL, &save_ptr); subdir != NULL; 
-                      subdir = strtok_r (NULL, DELIMIT_SYMBOL, &save_ptr)) 
+                         subdir = strtok_r (NULL, DELIMIT_SYMBOL, &save_ptr)) 
     {
+      /* Ignore consecutive "/" */
       if (strlen (subdir) == 0)
         continue;
+
+      /* If the symbol does not exist, exit. */
       if (!dir_lookup (cur_dir, subdir, &inode))
         {
           dir_close (cur_dir);
           return NULL;
         }
+
+      /* Open the next dir and close the current dir, then update. */
       struct dir *next = dir_open (inode);
       dir_close (cur_dir);
       if (!next)
