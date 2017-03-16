@@ -400,6 +400,27 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+static void
+deallocate (struct inode *inode)
+{
+  size_t length = inode->length;
+  size_t num_sectors = DIV_ROUND_UP (length, BLOCK_SECTOR_SIZE);
+  size_t i;
+  for (i = 0; i < num_sectors; i++)
+    {
+      free_map_release (sector_index_to_sector (i, inode), 1);
+    }
+  block_sector_t indirect;
+  cache_read (inode->sector, &indirect, INDIRECT_OFFS, sizeof (block_sector_t));
+  block_sector_t doubly_indirect;
+  cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, sizeof (block_sector_t));
+  free_map_release (indirect, 1);
+  free_map_release (doubly_indirect, 1);
+  if (inode->sector != 0 && inode->sector != 1) // TODO don't think we need this
+    free_map_release (inode->sector, 1);
+}
+
+
 /* Closes INODE and writes it to disk.
    If this was the last reference to INODE, frees its memory.
    If INODE was also a removed inode, frees its blocks. */
@@ -423,7 +444,7 @@ inode_close (struct inode *inode)
         {
           // and cache_close
           // TODO add a free_map_release_all, as well as free map lock
-          ;
+          deallocate (inode);
           // free_map_release (inode->sector, 1);
           // free_map_release (inode->data.start,
           //                   bytes_to_sectors (inode->data.length)); 
