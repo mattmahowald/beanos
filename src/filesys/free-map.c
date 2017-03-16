@@ -85,6 +85,7 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 void
 free_map_release (block_sector_t sector, size_t cnt)
 {
+  ASSERT (sector + cnt <= bitmap_size (free_map));
   ASSERT (bitmap_all (free_map, sector, cnt));
   bitmap_set_multiple (free_map, sector, cnt, false);
   bitmap_write (free_map, free_map_file);
@@ -106,6 +107,8 @@ void
 free_map_close (void) 
 {
   // write to disk
+  bitmap_write (free_map, free_map_file);
+
   file_close (free_map_file);
 }
 

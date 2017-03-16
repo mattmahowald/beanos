@@ -255,7 +255,7 @@ allocate_doubly_blocks (struct inode_disk *inode,
   size_t to_allocate = read ? num_indirect - 1 : num_indirect;
   size_t first_new_indirect = read ? first_indirect + 1 : first_indirect;
 
-  if (!free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
+  if (num_indirect && !free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
     goto done;
 
   size_t indirect_index;
@@ -317,8 +317,8 @@ extend_file (struct inode_disk *inode, size_t new_size)
       inode->length = new_size;
       return true;
     }
-  // else
-    // ASSERT (4 == 5);
+  else
+    PANIC ("Should have allocated %d, instead allocated %d", num_end_sectors - num_start_sectors, num_allocated);
 
   return true;
 }
