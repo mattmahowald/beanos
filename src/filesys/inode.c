@@ -215,62 +215,85 @@ static size_t
 allocate_doubly_blocks (struct inode_disk *inode, 
             size_t start_sectors, size_t end_sectors)
 {
-  if (end_sectors <= NUM_DIRECT + NUM_INDIRECT)
-    return 0;
+  struct indirect_block *doubly_indirect = NULL;
+  struct indirect_block *temp_indirect = NULL;
+  size_t sectors_written = 0;
 
+  if (end_sectors <= NUM_DIRECT + NUM_INDIRECT)
+    goto done;
+  /* Index in doubly blocks of last already allocated sector. */
   size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
+  
+  /* Index in doubly blocks of last index necessary to allocate. */
   size_t end_offset = end_sectors - NUM_DIRECT - NUM_INDIRECT;
 
-  struct indirect_block *doubly_indirect = malloc (sizeof *doubly_indirect);
+  /* Read current doubly indirect sector into doubly_indirect. */
+  doubly_indirect = malloc (sizeof *doubly_indirect);
   if (!doubly_indirect)
-    return 0;
+    goto done;
 
   cache_read (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
 
-  struct indirect_block *temp_indirect = malloc (sizeof *temp_indirect);
+  /* Allocate temporary indirect block to hold newly allocated direct sectors. */
+  temp_indirect = malloc (sizeof *temp_indirect);
   if (!temp_indirect)
-  {
-    free (doubly_indirect);
-    return 0;
-  }
+    goto done;
 
+  /* Index of first indirect block in the doubly block that we'll need to edit. */
   size_t first_indirect = start_offset / NUM_INDIRECT;
+
+  /* Index of last indirect block in the doubly block that we'll need to add. */
   size_t last_indirect = end_offset / NUM_INDIRECT;
+  
   size_t num_indirect = last_indirect - first_indirect;
 
+  /* If not clean break for new indirect, we'll have to go in and edit an already allocated indirect block. */
   size_t start = start_offset % NUM_INDIRECT;
   bool read = start != 0;
 
+  /* Allocate sectors for our new indirect blocks. */ 
   size_t to_allocate = read ? num_indirect - 1 : num_indirect;
   size_t first_new_indirect = read ? first_indirect + 1 : first_indirect;
 
   if (!free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
-  {
-    free (doubly_indirect);
-    free (temp_indirect);
-    return 0;
-  }
+    goto done;
 
-  size_t sectors_written = 0;
   size_t indirect_index;
   for (indirect_index = first_indirect; indirect_index <= last_indirect; indirect_index++)  
   {
+    /* Handle case where last block might not be entirely filled. */
     size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT : NUM_INDIRECT;
+    
+    /* Handle case where first block might already be partially filled. */
     size_t total = end - start;
     if (read)
-    cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
+      cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
+    
+    /* Allocate direct blocks in temporary indirect block. */
     if (!free_map_allocate_not_consecutive (total, &temp_indirect->sectors[start]))
-    {
-      free (doubly_indirect);
-      free (temp_indirect);
-      // also release allocated blocks
-      return sectors_written;
-    }
+      goto done;
+    
+    /* Write zeros to each newly allocated sector. */
+    size_t i;
+    for (i = start; i < end; i++)
+      cache_write (temp_indirect->sectors[i], zeros, 0, BLOCK_SECTOR_SIZE);
+    
+    /* Write temporary indirect block back to doubly indirect sector. */
     cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
-    sectors_written += NUM_INDIRECT;
+    
+    sectors_written += total;
     read = false;
     start = 0;
   }
+
+/* Write doubly indirect back to disk. */
+cache_write (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
+
+done:
+  if (doubly_indirect)
+    free (doubly_indirect);
+  if (temp_indirect)
+    free (temp_indirect);
   return sectors_written;
 }
 
