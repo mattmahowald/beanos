@@ -8,6 +8,7 @@
 
 #define BUFFER_SIZE 64
 
+static void read_thread (void *aux UNUSED);
 static void flush_thread (void *aux UNUSED);
 static void flush (struct cache_entry *entry);
 static size_t evict (void);
@@ -31,21 +32,32 @@ static struct condition flush_complete;
 static struct lock flusher_lock;
 static bool done;
 static struct cache_entry *entry_array;
+static struct semaphore read_sema;
+static struct lock read_ahead_lock;
+static struct list read_ahead_list;
+
+struct read_block
+{
+  block_sector_t to_read;
+  struct list_elem elem;
+}; 
 
 void 
 cache_init ()
 {
-
   entry_array = malloc (BUFFER_SIZE * sizeof (struct cache_entry));
-
   hash_init (&buffer_cache, cache_hash, cache_less, NULL);
   hash_init (&flush_entries, flush_hash, flush_less, NULL);
   cond_init (&flush_complete);
   lock_init (&cache_lock);
   lock_init (&flusher_lock);
+  list_init (&read_ahead_list);
+  sema_init (&read_sema, 0);
+  lock_init (&read_ahead_lock);
   done = false;
   clock_hand = 0;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  thread_create ("reader", PRI_DEFAULT, read_thread, NULL);
 }
 
 static void
@@ -57,6 +69,7 @@ flush_thread (void *aux UNUSED)
       lock_acquire (&flusher_lock);
       if (done)
       {
+        lock_release (&flusher_lock);
         return;
       }
       lock_acquire (&cache_lock);
@@ -77,6 +90,36 @@ flush_thread (void *aux UNUSED)
             }
         }
       lock_release (&flusher_lock);
+    }
+}
+
+void
+cache_add_to_read_ahead (block_sector_t sector)
+{
+  struct read_block *rb = malloc (sizeof *rb);
+  if (!rb)
+    PANIC ("malloc failed in read ahead");
+  rb->to_read = sector;
+  lock_acquire (&read_ahead_lock);
+  list_push_back (&read_ahead_list, &rb->elem);
+  lock_release (&read_ahead_lock);
+  sema_up (&read_sema);
+}
+
+static void
+read_thread (void *aux UNUSED)
+{
+  for (;;)
+    {
+      sema_down (&read_sema);
+      if (done)
+        return;
+      lock_acquire (&read_ahead_lock);
+      struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
+                                        struct read_block, elem);
+      lock_release (&read_ahead_lock);
+      cache_read (rb->to_read, NULL, 0, 0);
+      free (rb);
     }
 }
 
@@ -208,7 +251,8 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
             size_t to_read)
 {
   struct cache_entry *entry = get_cache_entry (sector);
-  memcpy (buffer, entry->data + ofs, to_read);
+  if (buffer)
+    memcpy (buffer, entry->data + ofs, to_read);
   entry->flags |= ACCESSED;
   lock_release (&entry->lock);
 }
@@ -220,7 +264,8 @@ cache_write (block_sector_t sector, const void *buffer, size_t ofs,
             size_t to_write)
 {
   struct cache_entry *entry = get_cache_entry (sector);
-  memcpy (entry->data + ofs, buffer, to_write);
+  if (buffer)
+    memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;
   lock_release (&entry->lock);
 }
