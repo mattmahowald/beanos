@@ -316,7 +316,10 @@ extend_file (struct inode_disk *inode, size_t new_size)
   size_t num_end_sectors = DIV_ROUND_UP (new_size, BLOCK_SECTOR_SIZE);
   ASSERT (num_start_sectors <= num_end_sectors);
   if (num_start_sectors == num_end_sectors)
-    return true;
+    {
+      inode->length = new_size;
+      return true;
+    }
   
   size_t num_allocated = 
     allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) 
@@ -499,7 +502,9 @@ inode_close (struct inode *inode)
           // free_map_release (inode->sector, 1);
           // free_map_release (inode->data.start,
           //                   bytes_to_sectors (inode->data.length)); 
-        } else { 
+        }
+      else
+        {
           lock_acquire (&inode->lock);
           cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
           lock_release (&inode->lock);

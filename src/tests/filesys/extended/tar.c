@@ -90,6 +90,7 @@ archive_file (char file_name[], size_t file_name_size,
               int archive_fd, bool *write_error) 
 {
   int file_fd = open (file_name);
+  // printf("archiving file %s\n", file_name);
   if (file_fd >= 0) 
     {
       bool success;
