@@ -73,36 +73,54 @@ struct inode
 
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
 
-
+/* Returns the block_sector_t that corresponds directly to the on-disk
+   block holding the inode. */
 static block_sector_t
 sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
 {
   size_t offset;
-  block_sector_t direct_block;
+  block_sector_t indirect_block;
   
   if (sector_index < NUM_DIRECT)
     {
+      /* In the case that the sector is direct, the block pointing to the
+      cache entry is the inode itself. */
       offset = META_BYTES + sector_index * sizeof (block_sector_t);
-      direct_block = inode->sector;
+      indirect_block = inode->sector;
     }
   else if (sector_index < NUM_DIRECT + NUM_INDIRECT)
     {
+      /* In the case that the sector is indirect, read in the indirect
+         block and calculate the offset into that block. */
       offset = (sector_index - NUM_DIRECT) * sizeof (block_sector_t);
-      cache_read (inode->sector, &direct_block, INDIRECT_OFFS, sizeof (block_sector_t));
+      cache_read (inode->sector, &indirect_block, INDIRECT_OFFS, 
+                  sizeof (block_sector_t));
     }
   else
     {
-      offset = ((sector_index - NUM_DIRECT - NUM_INDIRECT) % NUM_INDIRECT) * sizeof (block_sector_t);
+      /* In the case that the sector is doubly indirect, first read in the 
+         doubly indirect block index and calculate the offset into that 
+         block that corresponds to the entry for the indirect block.*/
       block_sector_t doubly_indirect;
-      cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, sizeof (block_sector_t));
-      block_sector_t doubly_offset = (sector_index - NUM_DIRECT - NUM_INDIRECT) / NUM_INDIRECT;
-      cache_read (doubly_indirect, &direct_block, doubly_offset * sizeof (block_sector_t), sizeof (block_sector_t));
+      cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, 
+                  sizeof (block_sector_t));
+      block_sector_t doubly_offset = (sector_index - NUM_DIRECT - NUM_INDIRECT) 
+                                     / NUM_INDIRECT;
+
+      /* Calculate the offset into the indirect block that corresponds to
+         the direct block's entry and read in the indirect block index. */                               
+      offset = ((sector_index - NUM_DIRECT - NUM_INDIRECT) % NUM_INDIRECT) 
+               * sizeof (block_sector_t);
+
+      cache_read (doubly_indirect, &indirect_block, 
+                  doubly_offset * sizeof (block_sector_t), 
+                  sizeof (block_sector_t));
     }
 
-  block_sector_t sector;
-  cache_read (direct_block, &sector, offset, sizeof (block_sector_t));
-  // printf("Sector index %d in inode %p corresponds to real sector %d\n", sector_index, inode, sector);
-  return sector;
+  /* Read and return the direct block index with the calculated values. */
+  block_sector_t direct_block;
+  cache_read (indirect_block, &direct_block, offset, sizeof (block_sector_t));
+  return direct_block;
 }
 
 bool
