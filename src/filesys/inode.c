@@ -9,40 +9,98 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 
+/* On-disk inode.
+   Must be exactly BLOCK_SECTOR_SIZE bytes long. 
+
+   The structure of the inode includes direct, indirect and doubly indirect
+   blocks as well as some meta data, arranged *(not to scale, each entry is
+   four bytes):
+
+   +-----------------------------+
+   |            length           |
+   +-----------------------------+
+   |            magic            |
+   +-----------------------------+
+   |          direct[0]          | -> a sector corresponding to a block of data
+   +-----------------------------+
+   |          direct[1]          | ->                 ""
+   +-----------------------------+
+   |          direct[2]          | ->                 ""
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |      direct[NUM_DIRECT]     | ->                 ""
+   +-----------------------------+   
+   |                             |    a sector corresponding to an indirect
+   |          indirect           | -> block that holds NUM_INDIRECT sectors
+   |                             |    corresponding to blocks of data.
+   +-----------------------------+     
+   |                             |    a sector corresponding to an indirect
+   |      doubly_indirect        | -> block that holds NUM_INDIRECT sectors,
+   |                             |    each corresponding to indirect blocks.
+   +-----------------------------+   
+   |    dir + 3 bytes unused     |    
+   +-----------------------------+   
+*/
+
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
+
+/* The number of direct blocks possible in the inode structure. */
 #define NUM_DIRECT 123
+
+/* The number of indirect blocks possible in the inode structure. */
 #define NUM_INDIRECT 128 
+
+/* The number of doubly indirect blocks possible in the inode structure. */
 #define NUM_DOUBLY_INDIRECT NUM_INDIRECT * NUM_INDIRECT
+
+/* The maximum number of blocks one inode can hold. */
 #define MAX_SECTORS NUM_DIRECT + NUM_INDIRECT + NUM_DOUBLY_INDIRECT
-#define META_BYTES 8
-#define INDIRECT_OFFS BLOCK_SECTOR_SIZE - 12
-#define DOUBLY_OFFS BLOCK_SECTOR_SIZE - 8
-/* On-disk inode.
-   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
+
+/* The number of meta_fields above the data in the disk_inode. */
+#define META_FIELDS 2
+
+/* The offset of fields in the disk_inode */
+#define DIRECT_OFFS META_FIELDS * sizeof(unsigned)
+#define INDIRECT_OFFS (META_FIELDS + NUM_DIRECT) * sizeof (unsigned)
+#define DOUBLY_OFFS (META_FIELDS + NUM_DIRECT + 1) * sizeof (unsigned)
 struct inode_disk
   {
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    block_sector_t direct[NUM_DIRECT];
-    block_sector_t indirect;
-    block_sector_t doubly_indirect;
-    bool dir;                           /* Does this inode represent a directory. */  
+    block_sector_t direct[NUM_DIRECT];  /* Direct blocks' sector numbers. */
+    block_sector_t indirect;            /* Indirect block's sector number. */
+    block_sector_t doubly_indirect;     /* Doubly indirect sector. */
+    bool dir;                           /* Is a directory? */  
     uint8_t unused[3];
   };
 
+/* An indirect block holds NUM_INDIRECT sectors, each pointing to either a
+   direct block of the sector is an indirect block or an indirect block if
+   the block is doubly indirect. */
 struct indirect_block
   {
     block_sector_t sectors[NUM_INDIRECT]; 
   };
 
-static size_t allocate_direct_blocks (struct inode_disk *inode, size_t start, size_t end);
-static size_t allocate_indirect_blocks (struct inode_disk *inode, size_t start, size_t end);
-static size_t allocate_doubly_blocks (struct inode_disk *inode, size_t start, size_t end);
+static size_t allocate_direct_blocks (struct inode_disk *inode, size_t start, 
+                                      size_t end);
+static size_t allocate_indirect_blocks (struct inode_disk *inode, size_t start, 
+                                        size_t end);
+static size_t allocate_doubly_blocks (struct inode_disk *inode, size_t start, 
+                                      size_t end);
 static bool extend_file (struct inode_disk *inode, size_t length);
+static size_t extension_helper (struct inode *inode, off_t size, off_t offset);
 
-static char zeros[BLOCK_SECTOR_SIZE];
+static block_sector_t sector_index_to_sector (block_sector_t sector_index, 
+                                              const struct inode *inode);
 
+/* Reads magic to assure the inode has not corrupted. */
 bool
 inode_is_inode (block_sector_t sector) {
   unsigned magic;
@@ -61,24 +119,28 @@ bytes_to_sectors (off_t size)
 /* In-memory inode. */
 struct inode 
   {
-    struct list_elem elem;              /* Element in inode list. */
-    block_sector_t sector;              /* Sector number of disk location. */
-    int open_cnt;                       /* Number of openers. */
-    bool removed;                       /* True if deleted, false otherwise. */
-    int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-    size_t length;
-    bool dir;
-    struct lock lock;
-    struct lock extension_lock;
-    struct lock dir_lock;
+    struct list_elem elem;           /* Element in inode list. */
+    block_sector_t sector;           /* Sector number of disk location. */
+    int open_cnt;                    /* Number of openers. */
+    bool removed;                    /* True if deleted, false otherwise. */
+    int deny_write_cnt;              /* 0: writes ok, >0: deny writes. */
+    size_t length;                   /* Length of the data in bytes. */
+    bool dir;                        /* Inode is a directory. */
+    struct lock lock;                /* Lock for struct inode's fields. */
+    struct lock extension_lock;      /* Prevents to extensions at once. */
+    struct lock dir_lock;            /* Locks dirent fields. */
   };
 
-static block_sector_t sector_index_to_sector (block_sector_t sector_index, const struct inode *inode);
+/* List of open inodes, so that opening a single inode twice
+   returns the same `struct inode'. */
+static struct list open_inodes;
+static char zeros[BLOCK_SECTOR_SIZE];
 
 /* Returns the block_sector_t that corresponds directly to the on-disk
    block holding the inode. */
 static block_sector_t
-sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
+sector_index_to_sector (block_sector_t sector_index, 
+                        const struct inode *inode)
 {
   size_t offset;
   block_sector_t indirect_block;
@@ -87,7 +149,7 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
     {
       /* In the case that the sector is direct, the block pointing to the
       cache entry is the inode itself. */
-      offset = META_BYTES + sector_index * sizeof (block_sector_t);
+      offset = DIRECT_OFFS + sector_index * sizeof (block_sector_t);
       indirect_block = inode->sector;
     }
   else if (sector_index < NUM_DIRECT + NUM_INDIRECT)
@@ -106,8 +168,8 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
       block_sector_t doubly_indirect;
       cache_read (inode->sector, &doubly_indirect, DOUBLY_OFFS, 
                   sizeof (block_sector_t));
-      block_sector_t doubly_offset = (sector_index - NUM_DIRECT - NUM_INDIRECT) 
-                                     / NUM_INDIRECT;
+      block_sector_t doubly_offs = (sector_index - NUM_DIRECT - NUM_INDIRECT) 
+                                   / NUM_INDIRECT;
 
       /* Calculate the offset into the indirect block that corresponds to
          the direct block's entry and read in the indirect block index. */                               
@@ -115,7 +177,7 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
                * sizeof (block_sector_t);
 
       cache_read (doubly_indirect, &indirect_block, 
-                  doubly_offset * sizeof (block_sector_t), 
+                  doubly_offs * sizeof (block_sector_t), 
                   sizeof (block_sector_t));
     }
 
@@ -125,6 +187,7 @@ sector_index_to_sector (block_sector_t sector_index, const struct inode *inode)
   return direct_block;
 }
 
+/* Returns true if the inode holds a directory, false if not. */
 bool
 inode_isdir (struct inode *inode)
 {
@@ -133,6 +196,7 @@ inode_isdir (struct inode *inode)
   return inode->dir;
 }
 
+/* Returns the open count of an inode. */
 size_t
 inode_num_open (struct inode *inode)
 {
@@ -152,10 +216,6 @@ byte_to_sector (const struct inode *inode, off_t pos)
   block_sector_t sector_index = pos / BLOCK_SECTOR_SIZE;
   return sector_index_to_sector (sector_index, inode);
 }
-
-/* List of open inodes, so that opening a single inode twice
-   returns the same `struct inode'. */
-static struct list open_inodes;
 
 /* Initializes the inode module. */
 void
@@ -570,22 +630,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   return bytes_read;
 }
 
-/* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
-   Returns the number of bytes actually written, which may be
-   less than SIZE if an error occurs. */
-off_t
-inode_write_at (struct inode *inode, const void *buffer_, off_t size,
-                off_t offset) 
+static size_t
+extension_helper (struct inode *inode, off_t size, off_t offset)
 {
-  const uint8_t *buffer = buffer_;
-  off_t bytes_written = 0;
-
-  lock_acquire (&inode->lock);
-  if (inode->deny_write_cnt)
-  {
-    lock_release (&inode->lock);
-    return 0;
-  }
   lock_acquire (&inode->extension_lock);
   size_t length = inode->length;
   bool extend = (size_t) offset + size > inode->length;
@@ -614,6 +661,28 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       cache_write (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       free (inode_disk);
     }
+  return length;
+}
+
+/* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
+   Returns the number of bytes actually written, which may be
+   less than SIZE if an error occurs. */
+off_t
+inode_write_at (struct inode *inode, const void *buffer_, off_t size,
+                off_t offset) 
+{
+  const uint8_t *buffer = buffer_;
+  off_t bytes_written = 0;
+
+  lock_acquire (&inode->lock);
+  if (inode->deny_write_cnt)
+  {
+    lock_release (&inode->lock);
+    return 0;
+  }
+  size_t length = extension_helper (inode, size, offset);
+  if (length == 0)
+    return 0;
   while (size > 0) 
     {
       /* Sector to write, starting byte offset within sector. */
@@ -637,8 +706,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
     }
-  // printf ("inode.c inode_write_at done\n");
-  if (extend)
+  if (length > inode->length)
     {
       lock_acquire (&inode->lock);
       inode->length = length;
