@@ -20,8 +20,6 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "vm/frame.h"
-#include "vm/page.h"
 
 #define MAX_ARGS 64
 
@@ -60,10 +58,14 @@ process_execute (const char *cmdline)
       palloc_free_page (cmd_copy);
       return TID_ERROR; 
     }  
+  
   /* Wait on child to load executable and stack then verify success. */
   struct thread *cur = thread_current ();
   struct thread *child = thread_get_from_tid (tid); 
   sema_down (&child->loaded);
+
+  child->cwd = dir_open (dir_get_inode (thread_current ()->cwd));
+  
 
   if (!child->load_success)
     return TID_ERROR;
@@ -102,21 +104,18 @@ initialize_child_thread (struct thread *child, struct thread *cur, tid_t tid)
 static void
 start_process (void *cmdline_)
 {
-
   char *cmdline = cmdline_;
 
   struct intr_frame if_;
   bool success;
-  page_init (&thread_current ()->spt);
-  list_init (&thread_current ()->mmapped_files);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  
   success = load (cmdline, &if_.eip, &if_.esp);
+
   /* If load failed, quit. */
   palloc_free_page (cmdline);
   if (!success)
@@ -133,12 +132,15 @@ start_process (void *cmdline_)
   NOT_REACHED ();
 }
 
-/* Identifies the thread corresponding to child_tid, then waits
-   for the child to finish by using the `done' semaphore. Removes
-   the child from the children list and frees the struct child_thread
-   struct itself before returning the exit status, first temporarily
-   storing the status to avoid the issue of getting the status after
-   the struct is freed. */
+/* Waits for thread TID to die and returns its exit status.  If
+   it was terminated by the kernel (i.e. killed due to an
+   exception), returns -1.  If TID is invalid or if it was not a
+   child of the calling process, or if process_wait() has already
+   been successfully called for the given TID, returns -1
+   immediately, without waiting.
+
+   This function will be implemented in problem 2-2.  For now, it
+   does nothing. */
 int
 process_wait (tid_t child_tid) 
 {
@@ -196,6 +198,16 @@ dispose_resources (struct thread *cur)
       intr_set_level (old_level);
       free (file);        
     }
+  struct list *dirs = &cur->directories;
+  while (!list_empty (dirs))
+    {
+      struct list_elem *e = list_pop_front (dirs);
+      struct fd_to_dir *dir = list_entry (e, struct fd_to_dir, elem);
+      enum intr_level old_level = intr_disable ();
+      dir_close (dir->dir);
+      intr_set_level (old_level);
+      free (dir);        
+    }
 }
 
 /* Free the current process's resources. */
@@ -205,12 +217,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   dispose_resources (cur);
 
-  page_spt_cleanup (&cur->spt);
-
-
-  enum intr_level old_level = intr_disable ();
   file_close (cur->exec_file);
-  intr_set_level (old_level);
   
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
@@ -250,7 +257,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  /* Clean up resources associated with the supplemental page table. */
 }
 
 /* Sets up the CPU for running user code in the current
@@ -361,9 +367,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */ 
-  syscall_acquire_filesys_lock ();
-  file = filesys_open (filename);
-  syscall_release_filesys_lock ();
+  file = (struct file *) filesys_open (filename, NULL);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", filename);
@@ -451,9 +455,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
   t->exec_file = file;
-  syscall_acquire_filesys_lock ();
   file_deny_write (file);
-  syscall_release_filesys_lock ();
  done:
   /* We arrive here whether the load is successful or not. */
   thread_current ()->load_success = success;
@@ -467,6 +469,9 @@ load (char *cmdline, void (**eip) (void), void **esp)
   return success;
 }
 
+/* load() helpers. */
+
+static bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -544,15 +549,30 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Map this page into the supplemental page table. */
-      struct spte_file f = {file, ofs, page_read_bytes, page_zero_bytes};
-      page_add_spte (EXEC, upage, f, writable, LAZY);
+      /* Get a page of memory. */
+      uint8_t *kpage = palloc_get_page (PAL_USER);
+      if (kpage == NULL)
+        return false;
+
+      /* Load this page. */
+      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
+      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      /* Add the page to the process's address space. */
+      if (!install_page (upage, kpage, writable)) 
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
-      ofs += PGSIZE;
     }
   return true;
 }
@@ -600,16 +620,21 @@ decrement_esp (void **esp)
 static bool
 setup_stack (void **esp, char *cmdline) 
 {
+  uint8_t *kpage;
   uintptr_t argv[MAX_ARGS];
   size_t bytes_used = 0;
 
-  uint8_t *stack_base = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct spte_file no_file = {NULL, 0, 0, 0};
-  page_add_spte (ZERO, stack_base, no_file, WRITABLE, !LAZY);
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage == NULL) 
+    return false;
 
+  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
+    {
+      palloc_free_page (kpage);
+      return false;
+    }
   *esp = PHYS_BASE;
-
-
+  
   size_t argc = push_args_to_stack (esp, cmdline, &argv, &bytes_used);
 
   /* Check that stack will not overflow. We need to take into acoount 
@@ -617,7 +642,7 @@ setup_stack (void **esp, char *cmdline)
      and the return address space. */
   if (bytes_used + sizeof(uintptr_t) * (argc + NUM_STD_STACK_ELEMS) > PGSIZE)
     {
-      page_remove_spte (*esp);
+      palloc_free_page (kpage);
       return false;
     }
 
@@ -638,4 +663,24 @@ setup_stack (void **esp, char *cmdline)
   decrement_esp (esp);
 
   return true;
+}
+
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }

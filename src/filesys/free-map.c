@@ -4,10 +4,12 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
+#include "threads/synch.h"
 #include <stdio.h>
 
 static struct file *free_map_file;   /* Free map file. */
 static struct bitmap *free_map;      /* Free map, one bit per sector. */
+static struct lock free_lock;
 
 /* Initializes the free map. */
 void
@@ -18,6 +20,7 @@ free_map_init (void)
     PANIC ("bitmap creation failed--file system device is too large");
   bitmap_mark (free_map, FREE_MAP_SECTOR);
   bitmap_mark (free_map, ROOT_DIR_SECTOR);
+  lock_init (&free_lock);
 }
 
 /* Allocates CNT consecutive sectors from the free map and stores
@@ -28,14 +31,16 @@ free_map_init (void)
 bool
 free_map_allocate (size_t cnt, block_sector_t *sectorp)
 {
+  lock_acquire (&free_lock);
   block_sector_t sector = bitmap_scan_and_flip (free_map, 0, cnt, false);
   if (sector != BITMAP_ERROR
       && free_map_file != NULL
-      && !bitmap_write (free_map, free_map_file))
+      && !bitmap_write (free_map, free_map_file)) 
     {
       bitmap_set_multiple (free_map, sector, cnt, false); 
       sector = BITMAP_ERROR;
     }
+  lock_release (&free_lock);
   if (sector != BITMAP_ERROR)
     *sectorp = sector;
   return sector != BITMAP_ERROR;
@@ -45,31 +50,33 @@ bool
 free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 {
   size_t i = 0;
-
   if (free_map_allocate (cnt, sector))
   {
     for (i = 0; i < cnt; i++)
       *(sector + i) = *sector + i;
     return true;
   }
-
-  PANIC ("NEED TO ALLOCATE OUR OWN NO MORE CONSECUTIVE");
-
   while (i < cnt)
     {
+      lock_acquire (&free_lock);
       *(sector + i) = bitmap_scan_and_flip (free_map, 0, 1, false);
+      lock_release (&free_lock);
+
       /* Flip previously allocated before returning false. */
       if (sector[i] == BITMAP_ERROR)
         {
           while (i > 0)
             {
+              lock_acquire (&free_lock);
               bitmap_set_multiple (free_map, sector[i - 1], 1, false);
+              lock_release (&free_lock);
               i--;
             }
           return false;
         }
       i++;
     }
+  lock_acquire (&free_lock);
   if (free_map_file != NULL
       && !bitmap_write (free_map, free_map_file))
     {
@@ -78,8 +85,10 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
           bitmap_set_multiple (free_map, sector[i - 1], 1, false);
           i--;
         }
+      lock_release (&free_lock);
       return false;
     }
+  lock_release (&free_lock);
   return true;
 }
 
@@ -87,9 +96,12 @@ free_map_allocate_not_consecutive (size_t cnt, block_sector_t *sector)
 void
 free_map_release (block_sector_t sector, size_t cnt)
 {
+  lock_acquire (&free_lock);
+  ASSERT (sector + cnt <= bitmap_size (free_map));
   ASSERT (bitmap_all (free_map, sector, cnt));
   bitmap_set_multiple (free_map, sector, cnt, false);
   bitmap_write (free_map, free_map_file);
+  lock_release (&free_lock);
 }
 
 /* Opens the free map file and reads it from disk. */
@@ -107,6 +119,7 @@ free_map_open (void)
 void
 free_map_close (void) 
 {
+  bitmap_write (free_map, free_map_file);
   file_close (free_map_file);
 }
 
@@ -116,7 +129,7 @@ void
 free_map_create (void) 
 {
   /* Create inode. */
-  if (!inode_create (FREE_MAP_SECTOR, bitmap_file_size (free_map)))
+  if (!inode_create (FREE_MAP_SECTOR, bitmap_file_size (free_map), !ISDIR))
     PANIC ("free map creation failed");
 
   /* Write bitmap to file. */

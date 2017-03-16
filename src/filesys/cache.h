@@ -19,8 +19,14 @@ struct cache_entry
 
   uint8_t flags;
 
-  uint8_t num_users;
   struct lock lock;
+};
+
+struct hash_entry
+{
+  struct hash_elem elem;
+  block_sector_t sector;
+  size_t array_index;
 };
 
 struct flush_entry
@@ -33,6 +39,8 @@ void cache_init (void);
 void cache_read (block_sector_t, void *, size_t, size_t);
 void cache_write (block_sector_t, const void *, size_t, size_t);
 void cache_cleanup (void); 
+void cache_add_to_read_ahead (block_sector_t sector);
+
 
 #endif /* filesys/cache.h */
 

@@ -12,16 +12,21 @@
 #define NAME_MAX 14
 
 struct inode;
+struct dir;
 
 /* Opening and closing directories. */
-bool dir_create (block_sector_t sector, size_t entry_cnt);
+bool dir_create_root (size_t entry_cnt);
+bool dir_create (struct dir *, char *);
 struct dir *dir_open (struct inode *);
 struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
 void dir_close (struct dir *);
 struct inode *dir_get_inode (struct dir *);
+int dir_get_inumber (struct dir *);
 
 /* Reading and writing. */
+struct dir *dir_lookup_path (char *pathname);
+void dir_split_path (const char *path, char *dirpath, char *name);
 bool dir_lookup (const struct dir *, const char *name, struct inode **);
 bool dir_add (struct dir *, const char *name, block_sector_t);
 bool dir_remove (struct dir *, const char *name);
