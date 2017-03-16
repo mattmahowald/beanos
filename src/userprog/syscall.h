@@ -17,7 +17,5 @@ struct fd_to_dir
 
 void syscall_init (void);
 void sys_exit (int status);
-void syscall_acquire_filesys_lock (void);
-void syscall_release_filesys_lock (void);
 
 #endif /* userprog/syscall.h */

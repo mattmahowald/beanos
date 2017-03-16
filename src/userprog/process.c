@@ -217,9 +217,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   dispose_resources (cur);
 
-  syscall_acquire_filesys_lock ();
   file_close (cur->exec_file);
-  syscall_release_filesys_lock ();
   
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
@@ -369,9 +367,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */ 
-  syscall_acquire_filesys_lock ();
   file = (struct file *) filesys_open (filename, NULL);
-  syscall_release_filesys_lock ();
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", filename);
@@ -459,9 +455,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
   t->exec_file = file;
-  syscall_acquire_filesys_lock ();
   file_deny_write (file);
-  syscall_release_filesys_lock ();
  done:
   /* We arrive here whether the load is successful or not. */
   thread_current ()->load_success = success;

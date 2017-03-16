@@ -43,14 +43,12 @@ static struct fd_to_file *get_file_struct_from_fd (int fd);
 static struct fd_to_dir *get_dir_struct_from_fd (int fd);
 static int allocate_fd (void);
 
-static struct lock filesys_lock; 
 static struct lock fd_lock;
 
 void 
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init (&filesys_lock);
   lock_init (&fd_lock);
 }
 
@@ -179,9 +177,7 @@ sys_create (const char *file, unsigned initial_size)
 {
   validate_string (file);
 
-  syscall_acquire_filesys_lock ();
   bool success =  filesys_create (file, initial_size);
-  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -194,11 +190,7 @@ sys_remove (const char *file)
 {
   validate_string (file);
 
-  // TODO support dir... lets do this in filesys remove
-
-  syscall_acquire_filesys_lock ();
   bool success = filesys_remove (file);
-  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -215,9 +207,7 @@ sys_open (const char *file)
 
   bool isdir;
 
-  syscall_acquire_filesys_lock ();
   void *data = filesys_open (file, &isdir);
-  syscall_release_filesys_lock ();
   if (!data)
     return -1; 
 
@@ -250,9 +240,7 @@ sys_filesize (int fd)
   struct file *f = get_file_struct_from_fd (fd)->f;
   if (f == NULL)
     sys_exit (-1);
-  syscall_acquire_filesys_lock ();
   int size = file_length (f);
-  syscall_release_filesys_lock ();
 
   return size;
 }
@@ -290,9 +278,7 @@ sys_read (int fd, void *buffer, unsigned size)
     sys_exit (-1); 
   struct file *f = fd_->f;
   
-  syscall_acquire_filesys_lock ();
   read = file_read (f, buffer, size);
-  syscall_release_filesys_lock (); 
 
   return read;
 }
@@ -335,9 +321,7 @@ sys_write (int fd, void *buffer, unsigned size)
     sys_exit (-1);
   struct file *f = fd_->f;
 
-  syscall_acquire_filesys_lock ();
   written = file_write (f, buffer, size);
-  syscall_release_filesys_lock ();
     
   return written;
 }
@@ -351,9 +335,7 @@ sys_seek (int fd, unsigned position)
   if (f == NULL)
     sys_exit (-1);
   
-  syscall_acquire_filesys_lock ();
   file_seek (f, position);
-  syscall_release_filesys_lock ();
 }
 
 /* System call tell(fd) tells the user the position of the cursor
@@ -380,9 +362,7 @@ sys_close (int fd)
   
   if (f != NULL)
     {
-      syscall_acquire_filesys_lock ();
       file_close (f->f);
-      syscall_release_filesys_lock ();
       list_remove (&f->elem);
     }
   else if (d != NULL)
@@ -401,9 +381,7 @@ sys_chdir (char *dir)
 { 
   validate_string (dir);
 
-  syscall_acquire_filesys_lock ();
   struct dir *d = dir_lookup_path (dir);
-  syscall_release_filesys_lock ();
 
   if (!d)
     return false;
@@ -448,7 +426,6 @@ sys_readdir (int fd, char *name)
   return success;
 }
 
-//isdir
 static bool
 sys_isdir (int fd)
 {
@@ -613,20 +590,3 @@ get_dir_struct_from_fd (int fd)
     }
   return NULL; 
 }
-
-/* Acquires the coarse file system lock. Should be called before every filesys 
-   operation. */
-void 
-syscall_acquire_filesys_lock ()
-{
-  lock_acquire (&filesys_lock);
-}
-
-/* Releases the coarse file system lock. Should be called after every filesys 
-   operation. */
-void 
-syscall_release_filesys_lock ()
-{
-  lock_release (&filesys_lock);
-}
-
