@@ -194,15 +194,66 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors,
 }
 
 static size_t
-allocate_doubly_blocks (struct inode_disk *inode UNUSED, 
-                        size_t start_sectors UNUSED, size_t end_sectors)
+allocate_doubly_blocks (struct inode_disk *inode, 
+            size_t start_sectors, size_t end_sectors)
 {
   if (end_sectors <= NUM_DIRECT + NUM_INDIRECT)
     return 0;
-  else
-    ASSERT (1 == 0);
 
-  return 0;
+  size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
+  size_t end_offset = end_sectors - NUM_DIRECT - NUM_INDIRECT;
+
+  struct indirect_block *doubly_indirect = malloc (sizeof *doubly_indirect);
+  if (!doubly_indirect)
+    return 0;
+
+  cache_read (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
+
+  struct indirect_block *temp_indirect = malloc (sizeof *temp_indirect);
+  if (!temp_indirect)
+  {
+    free (doubly_indirect);
+    return 0;
+  }
+
+  size_t first_indirect = start_offset / NUM_INDIRECT;
+  size_t last_indirect = end_offset / NUM_INDIRECT;
+  size_t num_indirect = last_indirect - first_indirect;
+
+  size_t start = start_offset % NUM_INDIRECT;
+  bool read = start != 0;
+
+  size_t to_allocate = read ? num_indirect - 1 : num_indirect;
+  size_t first_new_indirect = read ? first_indirect + 1 : first_indirect;
+
+  if (!free_map_allocate_not_consecutive (to_allocate, &doubly_indirect->sectors[first_new_indirect]))
+  {
+    free (doubly_indirect);
+    free (temp_indirect);
+    return 0;
+  }
+
+  size_t sectors_written = 0;
+  size_t indirect_index;
+  for (indirect_index = first_indirect; indirect_index <= last_indirect; indirect_index++)  
+  {
+    size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT : NUM_INDIRECT;
+    size_t total = end - start;
+    if (read)
+    cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
+    if (!free_map_allocate_not_consecutive (total, &temp_indirect->sectors[start]))
+    {
+      free (doubly_indirect);
+      free (temp_indirect);
+      // also release allocated blocks
+      return sectors_written;
+    }
+    cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
+    sectors_written += NUM_INDIRECT;
+    read = false;
+    start = 0;
+  }
+  return sectors_written;
 }
 
 
@@ -215,9 +266,6 @@ extend_file (struct inode_disk *inode, size_t new_size)
   if (num_start_sectors == num_end_sectors)
     return true;
   
-  if (num_end_sectors > NUM_DIRECT + NUM_INDIRECT)
-    PANIC ("Only doing direct and indirect at the moment.");
-
   size_t num_allocated = 
     allocate_direct_blocks (inode, num_start_sectors, num_end_sectors) 
     + allocate_indirect_blocks (inode, num_start_sectors, num_end_sectors)
@@ -228,8 +276,8 @@ extend_file (struct inode_disk *inode, size_t new_size)
       inode->length = new_size;
       return true;
     }
-  else
-    ASSERT (4 == 5);
+  // else
+    // ASSERT (4 == 5);
 
   return true;
 }
