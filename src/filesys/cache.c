@@ -45,7 +45,7 @@ cache_init ()
   lock_init (&flusher_lock);
   done = false;
   clock_hand = 0;
-  // thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
 }
 
 static void
@@ -55,6 +55,10 @@ flush_thread (void *aux UNUSED)
     {
       timer_sleep (30);
       lock_acquire (&flusher_lock);
+      if (done)
+      {
+        return;
+      }
       lock_acquire (&cache_lock);
       size_t size = hash_size (&buffer_cache);
       lock_release (&cache_lock);
@@ -73,11 +77,6 @@ flush_thread (void *aux UNUSED)
             }
         }
       lock_release (&flusher_lock);
-      if (done)
-      {
-        free (entry_array);
-        return;
-      }
     }
 }
 
@@ -237,14 +236,15 @@ free_hash_entry (struct hash_elem *e, void *aux UNUSED)
 void 
 cache_cleanup () 
 {
-  // lock_acquire (&flusher_lock);
-  // done = true;
-  // lock_release (&flusher_lock);
+  lock_acquire (&flusher_lock);
+  done = true;
+  lock_release (&flusher_lock);
   size_t i = 0;
   for (i = 0; i < hash_size(&buffer_cache); i++)
     {
       block_write (fs_device, entry_array[i].sector, &entry_array[i].data);
     }
+  free (entry_array);
   hash_destroy (&buffer_cache, free_hash_entry);
 }
 
