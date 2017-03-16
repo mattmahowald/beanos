@@ -119,7 +119,7 @@ read_thread (void *aux UNUSED)
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      lock_release (&get_cache_entry (rb->to_read)->lock);
+      // lock_release (&get_cache_entry (rb->to_read)->lock);
       free (rb);
     }
 }
@@ -215,7 +215,7 @@ add_to_cache (block_sector_t sector)
   he->sector = sector;
   struct hash_elem *e = hash_insert (&buffer_cache, &he->elem);
   
-  ASSERT (!e);
+  ASSERT (!e); // TODO honestly this is puzzling
 
   return entry;
 }
