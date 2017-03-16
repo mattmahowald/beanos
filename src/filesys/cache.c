@@ -24,22 +24,23 @@ unsigned flush_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool flush_less (const struct hash_elem *a_, const struct hash_elem *b_, 
                  void *aux UNUSED);
 
-static struct lock cache_lock;
-static struct hash buffer_cache;
-static struct hash flush_entries;
-static size_t clock_hand;
-static struct condition flush_complete;
-static struct lock flusher_lock;
-static bool done;
-static struct cache_entry *entry_array;
-static struct semaphore read_sema;
-static struct lock read_ahead_lock;
-static struct list read_ahead_list;
+static struct lock cache_lock;          /* Course lock for entire cache. */
+static struct hash buffer_cache;        /* Holds sectors in cache array. */
+static struct hash flush_entries;       /* Holds sectors in flush. */
+static size_t clock_hand;               /* Position of clock hand. */
+static struct lock flusher_lock;        /* Synchs flusher with cleanup. */
+static bool done;                       /* Let's flusher know to die. */
+static struct cache_entry *entry_array; /* Actual cache array. */
+static struct semaphore read_sema;      /* Signals read-ahead to read. */
+static struct lock read_ahead_lock;     /* Synchs read-ahead list. */
+static struct list read_ahead_list;     /* Read-ahead list. */
 
+/* List of struct read_blocks lets read-ahead thread bring specified sector
+   into the cache. */
 struct read_block
 {
-  block_sector_t to_read;
-  struct list_elem elem;
+  block_sector_t to_read;               /* Sector to bring in to cache. */
+  struct list_elem elem;                /* List elem. */
 }; 
 
 void 

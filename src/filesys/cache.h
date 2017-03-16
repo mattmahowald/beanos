@@ -8,31 +8,35 @@
 
 #define ACCESSED 0b00000001
 #define DIRTY    0b00000010
-#define PRESENT  0b00000100
-#define METADATA 0b00001000
 
+/* An array of cache_entry structs forms the foundation of our cache. These
+   structs hold the block sector data themselves, as well as some meta 
+   information about to block. */
 struct cache_entry
 {
-  struct hash_elem elem;
-  block_sector_t sector;
-  uint8_t data[BLOCK_SECTOR_SIZE];
-
-  uint8_t flags;
-
-  struct lock lock;
+  struct hash_elem elem;           /* List elem. */
+  block_sector_t sector;           /* Block sector whose data is held. */
+  uint8_t data[BLOCK_SECTOR_SIZE]; /* Actual block data from disk. */
+  uint8_t flags;                   /* Holds ACCESSED and DIRTY. */
+  struct lock lock;                /* Lock for synch. */
 };
 
+/* A hash of hash_entry structs tracks those sectors currently active in the
+   buffer cache. This struct allows our cache to find the physical location of
+   that sector in the cache_entry array with array_index. */
 struct hash_entry
 {
-  struct hash_elem elem;
-  block_sector_t sector;
-  size_t array_index;
+  struct hash_elem elem;           /* Hash elem. */
+  block_sector_t sector;           /* Block sector. */
+  size_t array_index;              /* Index into cache_entry array. */
 };
 
+/* A hash of flush_entry structs tracks those sectors that may not be present
+   in the cache_buffer_hash, but are currently being flushed back to disk. */
 struct flush_entry
 {
-  struct hash_elem elem;
-  block_sector_t sector;
+  struct hash_elem elem;           /* Hash elem. */
+  block_sector_t sector;           /* Block sector. */
 };
 
 void cache_init (void);
