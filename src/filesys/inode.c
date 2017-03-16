@@ -563,10 +563,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       bytes_read += chunk_size;
     }
 
-  size_t end_read = size + bytes_read;
-  int next_index = DIV_ROUND_UP (end_read, BLOCK_SECTOR_SIZE);
-  if (next_index <= DIV_ROUND_UP (inode_length (inode), BLOCK_SECTOR_SIZE))
-    cache_add_to_read_ahead (sector_index_to_sector(next_index, inode));
+  if (offset % BLOCK_SECTOR_SIZE == 0 && offset < inode_length (inode))
+    cache_add_to_read_ahead (byte_to_sector(inode, offset));
+  
   return bytes_read;
 }
 

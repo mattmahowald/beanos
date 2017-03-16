@@ -115,10 +115,11 @@ read_thread (void *aux UNUSED)
       if (done)
         return;
       lock_acquire (&read_ahead_lock);
+      ASSERT (!list_empty (&read_ahead_list));
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      cache_read (rb->to_read, NULL, 0, 0);
+      lock_release (&get_cache_entry (rb->to_read)->lock);
       free (rb);
     }
 }
