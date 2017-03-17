@@ -7,6 +7,7 @@
 #include "threads/malloc.h"
 
 #define BUFFER_SIZE 64
+#define READ_AHEAD true
 
 static void read_thread (void *aux UNUSED);
 static void flush_thread (void *aux UNUSED);
@@ -14,7 +15,7 @@ static void flush (struct cache_entry *entry);
 static size_t evict (block_sector_t new_sector);
 
 static struct cache_entry *add_to_cache (block_sector_t sector);
-static struct cache_entry *get_cache_entry (block_sector_t sector);
+static struct cache_entry *get_cache_entry (block_sector_t sector, bool read_ahead);
 
 void free_hash_entry (struct hash_elem *e, void *aux UNUSED);
 unsigned cache_hash (const struct hash_elem *p_, void *aux UNUSED);
@@ -122,7 +123,8 @@ read_thread (void *aux UNUSED)
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      cache_read (rb->to_read, NULL, 0, 512);
+      
+      get_cache_entry (rb->to_read, READ_AHEAD);
       free (rb);
     }
 }
@@ -144,7 +146,6 @@ flush (struct cache_entry *entry)
 static size_t
 evict (block_sector_t new_sector)
 {
-
   ASSERT (lock_held_by_current_thread (&cache_lock));
 
   struct cache_entry *evicted = NULL;
@@ -170,7 +171,7 @@ evict (block_sector_t new_sector)
               new->present = false;
               hash_insert (&buffer_cache, &new->elem);
               index = clock_hand;
-              clock_hand = (clock_hand + 1) % BUFFER_SIZE;
+              // clock_hand = (clock_hand + 1) % BUFFER_SIZE;
 
               if (evicted->flags & DIRTY)
               {
@@ -186,6 +187,7 @@ evict (block_sector_t new_sector)
               lock_release (&entry->lock);
             }
         }
+      clock_hand = (clock_hand + 1) % BUFFER_SIZE;
     }
   // printf("Thread %p has evicted from index %d\n", thread_current (), index);
   return index;
@@ -221,7 +223,6 @@ add_to_cache (block_sector_t sector)
           struct hash_elem *e = hash_find (&buffer_cache, &tmp_cache.elem);
           if (e)
             {
-              // TODO maybe check the present here
               entry = &entry_array[hash_entry (elem, struct hash_entry, elem)->array_index];
               lock_acquire (&entry->lock);
               return entry;
@@ -238,7 +239,7 @@ add_to_cache (block_sector_t sector)
 }
 
 static struct cache_entry *
-get_cache_entry (block_sector_t sector)
+get_cache_entry (block_sector_t sector, bool read_ahead)
 {
   struct hash_entry tmp;
   struct cache_entry *entry;
@@ -250,6 +251,11 @@ get_cache_entry (block_sector_t sector)
       struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
       if (elem)
         {
+          if (read_ahead)
+            {
+              lock_release (&cache_lock);
+              return NULL;
+            }         
           struct hash_entry *he = hash_entry (elem, struct hash_entry, elem);
           if (!he->present)
             {
@@ -268,6 +274,8 @@ get_cache_entry (block_sector_t sector)
           lock_release (&cache_lock);
           block_read (fs_device, sector, entry->data);
         }
+      if (read_ahead)
+        lock_release (&entry->lock);
       return entry;
     }
 }
@@ -278,7 +286,7 @@ void
 cache_read (block_sector_t sector, void *buffer, size_t ofs, 
             size_t to_read)
 {
-  struct cache_entry *entry = get_cache_entry (sector);
+  struct cache_entry *entry = get_cache_entry (sector, !READ_AHEAD);
   if (buffer)
     memcpy (buffer, entry->data + ofs, to_read);
   entry->flags |= ACCESSED;
@@ -293,7 +301,7 @@ void
 cache_write (block_sector_t sector, const void *buffer, size_t ofs, 
             size_t to_write)
 {
-  struct cache_entry *entry = get_cache_entry (sector);
+  struct cache_entry *entry = get_cache_entry (sector, !READ_AHEAD);
   if (buffer)
     memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;
@@ -330,7 +338,7 @@ cache_cleanup ()
 unsigned 
 cache_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
-  const struct cache_entry *p = hash_entry (p_, struct cache_entry, elem);
+  const struct hash_entry *p = hash_entry (p_, struct hash_entry, elem);
   return hash_int (p->sector);
 }
 
@@ -339,8 +347,8 @@ bool
 cache_less (const struct hash_elem *a_, const struct hash_elem *b_, 
            void *aux UNUSED)
 {
-  const struct flush_entry *a = hash_entry (a_, struct flush_entry, elem);
-  const struct flush_entry *b = hash_entry (b_, struct flush_entry, elem);
+  const struct hash_entry *a = hash_entry (a_, struct hash_entry, elem);
+  const struct hash_entry *b = hash_entry (b_, struct hash_entry, elem);
 
   return a->sector < b->sector;
 }
