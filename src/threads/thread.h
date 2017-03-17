@@ -2,10 +2,10 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
-#include <hash.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+// #include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -112,10 +112,6 @@ struct thread
 
 #endif
 
-    /* Virtual memory */
-    struct hash spt;                    /* Supplementary page table. */
-    struct list mmapped_files;          /* List of memory mapped files. */
-    void *esp;                          /* Stack pointer. */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

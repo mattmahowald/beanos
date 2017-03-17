@@ -6,7 +6,6 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "userprog/syscall.h"
-#include "vm/page.h"
 
 
 /* Number of page faults processed. */
@@ -112,7 +111,9 @@ kill (struct intr_frame *f)
     }
 }
 
-/* Page fault handler. 
+/* Page fault handler.  This is a skeleton that must be filled in
+   to implement virtual memory.  Some solutions to project 2 may
+   also require modifying this code.
 
    At entry, the address that faulted is in CR2 (Control Register
    2) and information about the fault, formatted as described in
@@ -120,13 +121,7 @@ kill (struct intr_frame *f)
    example code here shows how to parse that information.  You
    can find more information about both of these in the
    description of "Interrupt 14--Page Fault Exception (#PF)" in
-   [IA32-v3a] section 5.15 "Exception and Interrupt Reference". 
-
-   If the page fault is from user context, the handler atempts to
-   load in the page. If successful, the handler returns and 
-   re executes the command. If the page does not load and the fault
-   comes from a writable page, the handler attempts to grow the 
-   stack, returning and re executing on succes. */
+   [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
 static void
 page_fault (struct intr_frame *f) 
 {
@@ -155,14 +150,6 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
-
-  if (user && not_present) 
-    {
-      if (page_load (fault_addr, !PIN))
-        return;
-      else if (write && page_extend_stack (fault_addr, f->esp))
-        return;
-    }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
