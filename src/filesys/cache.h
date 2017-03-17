@@ -30,6 +30,7 @@ struct hash_entry
   block_sector_t sector;           /* Block sector. */
   size_t array_index;              /* Index into cache_entry array. */
   bool present;
+  struct condition pres;
 };
 
 /* A hash of flush_entry structs tracks those sectors that may not be present

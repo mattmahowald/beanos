@@ -36,6 +36,7 @@ static struct semaphore read_sema;      /* Signals read-ahead to read. */
 static struct lock read_ahead_lock;     /* Synchs read-ahead list. */
 static struct list read_ahead_list;     /* Read-ahead list. */
 static struct condition flush_complete; /* Broadcasts that flush is done. */
+static struct semaphore read_dead;
 
 /* List of struct read_blocks lets read-ahead thread bring specified sector
    into the cache. */
@@ -59,6 +60,7 @@ cache_init ()
   sema_init (&read_sema, 0);
   lock_init (&read_ahead_lock);
   cond_init (&flush_complete);
+  sema_init (&read_dead, 0);
   done = false;
   clock_hand = 0;
   thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
@@ -124,15 +126,23 @@ read_thread (void *aux UNUSED)
   for (;;)
     {
       sema_down (&read_sema);
+      lock_acquire (&flusher_lock);
       if (done)
+      {
+        lock_release (&flusher_lock);
+        sema_up (&read_dead);
         return;
+      }
+      lock_release (&flusher_lock);
+
       lock_acquire (&read_ahead_lock);
       ASSERT (!list_empty (&read_ahead_list));
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      
+      // printf("Read thread about to beast up %d\n", rb->to_read);
       get_cache_entry (rb->to_read, READ_AHEAD);
+      // printf("Read thread beasted up %d\n", rb->to_read);
       free (rb);
     }
 }
@@ -180,12 +190,14 @@ evict (block_sector_t new_sector)
               new->array_index = clock_hand;
               new->sector = new_sector;
               new->present = false;
+              cond_init (&new->pres);
               hash_insert (&buffer_cache, &new->elem);
               index = clock_hand;
 
               if (evicted->flags & DIRTY)
                 flush (evicted);
               new->present = true;
+              cond_broadcast (&new->pres, &cache_lock);
             }
           else
             {
@@ -252,11 +264,14 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
-  if (read_ahead)
-    {
-      lock_release (&cache_lock);
-      return NULL;
-    }   
+  // if (read_ahead)
+  //   {
+  //     lock_release (&cache_lock);
+  //     return NULL;
+  //   }   
+
+  // printf("thread %p about to beast up %d\n", thread_current (), sector);
+
   for (;;)
     {       
       struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
@@ -265,7 +280,7 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
           struct hash_entry *he = hash_entry (elem, struct hash_entry, elem);
           if (!he->present)
             {
-              cond_wait (&flush_complete, &cache_lock);
+              cond_wait (&he->pres, &cache_lock);
               continue;
             }
           entry = &entry_array[he->array_index];
@@ -279,7 +294,14 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
           block_read (fs_device, sector, entry->data);
         }
       if (read_ahead)
-        lock_release (&entry->lock);
+        {
+          if (!lock_held_by_current_thread (&entry->lock))
+            {
+              PANIC ("reader");
+            }
+          lock_release (&entry->lock);
+        }
+      // printf("thread %p beasted up %d\n", thread_current (), sector);
       return entry;
     }
 }
@@ -294,6 +316,11 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
   if (buffer)
     memcpy (buffer, entry->data + ofs, to_read);
   entry->flags |= ACCESSED;
+  if (!lock_held_by_current_thread (&entry->lock))
+    {
+      PANIC ("cache_read");
+    }
+
   lock_release (&entry->lock);
 }
 
@@ -307,6 +334,10 @@ cache_write (block_sector_t sector, const void *buffer, size_t ofs,
   if (buffer)
     memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;
+  if (!lock_held_by_current_thread (&entry->lock))
+    {
+      PANIC ("cache_write");
+    }
   lock_release (&entry->lock);
 }
 
@@ -325,6 +356,8 @@ cache_cleanup ()
   lock_acquire (&flusher_lock);
   done = true;
   lock_release (&flusher_lock);
+  sema_up (&read_sema);
+  sema_down (&read_dead);
   size_t i = 0;
   for (i = 0; i < hash_size(&buffer_cache); i++)
     {
