@@ -182,7 +182,7 @@ guaranteed to be written.
 
 The synchronization is implemented at a cache level. The only time 
 threads block each other is on two write calls that must extend. Otherwise,
-processes are only blocked during individual cache reads and writes.
+processes are only blocked during individual cache reads and writes. 
 
 ---- RATIONALE ----
 
@@ -261,9 +261,13 @@ function leverages dir_lookup and lookup, implemented in the starter code.
 
 To prevent races on directory entries we use a directory lock in the inode.
 When two threads try to create a directory with the same name, in dir_add
-both threads will try to acquire the lock. The first will acquire, search the 
+both threads will try to acquire the lock on their shared inode using 
+inode_acquire_dir_lock. The first will acquire, search the 
 dir, add the subdir, then release the lock. The second will then acquire the
 lock, find the directory, and return failure.
+
+We hold this lock in dir_remove as well, and in every instance where we read /
+write to the backing shared inode.
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
@@ -271,12 +275,11 @@ lock, find the directory, and return failure.
 >> file system operations?  If not, how do you prevent it?
 
 Our implementation keeps a directory from being removed when it
-is open by a process. To do so, we use the inode open_cnt field.
-In our dir_remove function, we check if the inode to remove is a dir,
-and if so, we assure the open_cnt is 1 (or, in other words, we are
-the only process with the directory open), then remove the directory
-entry from the inode. No other process will be able to lookup the directory,
-so we release the lock and close and remove the inode. 
+is open by a process. To do so, acquire that inode's lock and 
+read the inode open_cnt field. If that inode is a directory and if 
+the open_cnt is 1 (we are the only process with it open), then remove the 
+directory entry from the inode. No other process will be able to lookup the 
+directory, so we release the lock and close and remove the inode. 
 
 ---- RATIONALE ----
 
@@ -287,6 +290,8 @@ We chose to represent the current directory of a process as an open
 struct dir. These struct dirs are unique among processes and can have
 different pos values. This made more sense than using just the inode 
 pointer (no pos) or the dir_entry which is not unique among processes.
+By keeping the cwd as an open dir, it also guarentees that no other process
+will be able to remove that dir (as open count will always be greater than 1).
 
            BUFFER CACHE
            ============
