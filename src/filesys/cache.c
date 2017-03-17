@@ -45,6 +45,7 @@ struct read_block
   struct list_elem elem;                /* List elem. */
 }; 
 
+/* Initializes the cache and associated metadata. */
 void 
 cache_init ()
 {
@@ -60,16 +61,20 @@ cache_init ()
   cond_init (&flush_complete);
   done = false;
   clock_hand = 0;
-  // thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
   thread_create ("reader", PRI_DEFAULT, read_thread, NULL);
 }
 
+#define SLEEPER_INTERVAL 30
+
+/* Flusher thread runs in the background, sleeping at regular intervals,
+   then flushing every cache entry to disk. */
 static void
 flush_thread (void *aux UNUSED)
 {
   for (;;)
     {
-      timer_sleep (30);
+      timer_sleep (SLEEPER_INTERVAL);
       lock_acquire (&flusher_lock);
       if (done)
       {
@@ -97,6 +102,7 @@ flush_thread (void *aux UNUSED)
     }
 }
 
+/* Adds SECTOR to the reader thread's list of blocks to read. */
 void
 cache_add_to_read_ahead (block_sector_t sector)
 {
@@ -110,6 +116,8 @@ cache_add_to_read_ahead (block_sector_t sector)
   sema_up (&read_sema);
 }
 
+/* Reader waits for an entry to be added to the read_ahead_list, then
+   reads it in from the cache. */
 static void
 read_thread (void *aux UNUSED)
 {
@@ -124,25 +132,29 @@ read_thread (void *aux UNUSED)
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
       
-      get_cache_entry (rb->to_read, READ_AHEAD);
+      lock_release (&get_cache_entry (rb->to_read, !READ_AHEAD)->lock);
       free (rb);
     }
 }
 
+/* Flushes a sector to disk, adding the entry to the flush hash to prevent
+   users from reading an incorrect file from disk. */
 static void
 flush (struct cache_entry *entry)
 {
-  struct flush_entry flush;
-  flush.sector = entry->sector;
-  hash_insert (&flush_entries, &flush.elem);
-  // printf("Thread %p is about to release cache lock to write back %d\n", thread_current(), flush.sector);
+  struct flush_entry *flush = malloc (sizeof *flush);
+  flush->sector = entry->sector;
+  hash_insert (&flush_entries, &flush->elem);
   lock_release (&cache_lock);
   block_write (fs_device, entry->sector, entry->data);
   lock_acquire (&cache_lock);
-  hash_delete (&flush_entries, &flush.elem);
+  hash_delete (&flush_entries, &flush->elem);
+  free (flush);
   cond_broadcast (&flush_complete, &cache_lock);
 }
 
+/* Second chance clock hand algorithm selects an entry to evict, then 
+   flushes the value to disk if necessary. */
 static size_t
 evict (block_sector_t new_sector)
 {
@@ -158,7 +170,6 @@ evict (block_sector_t new_sector)
           if (!(entry->flags & ACCESSED))
             {
               evicted = entry;
-              // printf("Thread %p has chosen to evict sector %d\n", thread_current (), evicted->sector);
               struct hash_entry tmp;
               tmp.sector = evicted->sector;
               struct hash_elem *e = hash_find (&buffer_cache, &tmp.elem);
@@ -171,14 +182,9 @@ evict (block_sector_t new_sector)
               new->present = false;
               hash_insert (&buffer_cache, &new->elem);
               index = clock_hand;
-              // clock_hand = (clock_hand + 1) % BUFFER_SIZE;
 
               if (evicted->flags & DIRTY)
-              {
-                // printf("Thread %p is flushing sector %d in index %d\n", thread_current (), evicted->sector, clock_hand);
                 flush (evicted);
-                // printf("Thread %p has flushed sector %d in index %d\n", thread_current (), evicted->sector, clock_hand);
-              }
               new->present = true;
             }
           else
@@ -189,10 +195,10 @@ evict (block_sector_t new_sector)
         }
       clock_hand = (clock_hand + 1) % BUFFER_SIZE;
     }
-  // printf("Thread %p has evicted from index %d\n", thread_current (), index);
   return index;
 }
 
+/* Adds to the buffer cache the block at SECTOR*/
 static struct cache_entry *
 add_to_cache (block_sector_t sector)
 {
@@ -238,6 +244,8 @@ add_to_cache (block_sector_t sector)
   return entry;
 }
 
+/* Gets a cache entry from the buffer cache, assuring that the entry has 
+   finished flushing and present. */
 static struct cache_entry *
 get_cache_entry (block_sector_t sector, bool read_ahead)
 {
@@ -245,7 +253,6 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
-  // printf("Thread %p acquired lock and getting sector %d\n", thread_current (), sector);
   for (;;)
     {       
       struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
@@ -259,9 +266,7 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
           struct hash_entry *he = hash_entry (elem, struct hash_entry, elem);
           if (!he->present)
             {
-              // printf("Thread %p found %d, but it isn't present. Waiting now.\n", thread_current (), sector);
               cond_wait (&flush_complete, &cache_lock);
-              // printf("Thread %p woke up!\n", thread_current ());
               continue;
             }
           entry = &entry_array[he->array_index];
@@ -290,9 +295,7 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
   if (buffer)
     memcpy (buffer, entry->data + ofs, to_read);
   entry->flags |= ACCESSED;
-  // printf("Thread %p is about to release lock of entry with sector %d, which should be %d\n", thread_current (), entry->sector, sector);
   lock_release (&entry->lock);
-  // printf("released\n");
 }
 
 /* Writes from the given buffer into given sector on disk. If the 
@@ -305,12 +308,10 @@ cache_write (block_sector_t sector, const void *buffer, size_t ofs,
   if (buffer)
     memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;
-  // printf("Thread %p is about to release lock of entry with sector %d, which should be %d\n", thread_current (), entry->sector, sector);
   lock_release (&entry->lock);
-  // printf("released\n");
 }
 
-
+/* Cleanup function for free hash. */
 void 
 free_hash_entry (struct hash_elem *e, void *aux UNUSED)
 {  
@@ -318,6 +319,7 @@ free_hash_entry (struct hash_elem *e, void *aux UNUSED)
   free (entry);
 }
 
+/* Frees resources associated with the cache. */
 void 
 cache_cleanup () 
 {
