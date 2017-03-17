@@ -96,35 +96,36 @@ struct inode
    blocks as well as some meta data, arranged *(not to scale, each entry is
    four bytes):
 
-   +-----------------------------+
-   |            length           |
-   +-----------------------------+
-   |            magic            |
-   +-----------------------------+
-   |          direct[0]          | -> a sector corresponding to a block of data
-   +-----------------------------+
-   |          direct[1]          | ->                 ""
-   +-----------------------------+
-   |          direct[2]          | ->                 ""
-   +-----------------------------+
-   |             .               |
-   +-----------------------------+
-   |             .               |
-   +-----------------------------+
-   |             .               |
-   +-----------------------------+
-   |      direct[NUM_DIRECT]     | ->                 ""
-   +-----------------------------+   
-   |                             |    a sector corresponding to an indirect
-   |          indirect           | -> block that holds NUM_INDIRECT sectors
-   |                             |    corresponding to blocks of data.
-   +-----------------------------+     
-   |                             |    a sector corresponding to an indirect
-   |      doubly_indirect        | -> block that holds NUM_INDIRECT sectors,
-   |                             |    each corresponding to indirect blocks.
-   +-----------------------------+   
-   |    dir + 3 bytes unused     |    
-   +-----------------------------+   
+ +-----------------------------+
+ |           length            |
+ +-----------------------------+
+ |            magic            |
+ +-----------------------------+
+ |          direct[0]          | -> a sector corresponding to a block of data
+ +-----------------------------+
+ |          direct[1]          | ->                 ""
+ +-----------------------------+
+ |          direct[2]          | ->                 ""
+ +-----------------------------+
+ |             .               |
+ +-----------------------------+
+ |             .               |
+ +-----------------------------+
+ |             .               |
+ +-----------------------------+
+ |      direct[NUM_DIRECT]     | ->                 ""
+ +-----------------------------+   
+ |                             |    a sector corresponding to an indirect
+ |          indirect           | -> block that holds NUM_INDIRECT sectors
+ |                             |    corresponding to blocks of data.
+ +-----------------------------+     
+ |                             |    a sector corresponding to an indirect
+ |      doubly_indirect        | -> block that holds NUM_INDIRECT sectors,
+ |                             |    each corresponding to indirect blocks.
+ +-----------------------------+   
+ |    dir + 3 bytes unused     | -> bool is directory + unused   
+ +-----------------------------+   
+
 */
 
 The total size for a file supported by our inode structure = 
@@ -179,8 +180,9 @@ guaranteed to be written.
 >> processes writing to a file cannot prevent another process forever
 >> from reading the file.
 
-
-
+The synchronization is implemented at a cache level. The only time 
+threads block each other is on two write calls that must extend. Otherwise,
+processes are only blocked during individual cache reads and writes.
 
 ---- RATIONALE ----
 
@@ -190,16 +192,14 @@ guaranteed to be written.
 >> structure, and what advantages and disadvantages does your
 >> structure have, compared to a multilevel index?
 
-We chose a combination of direct, indirect, and doubly indirect. Our
-implementation uses 123 direct blocks, 1 * 128 indirect blocks, and 
-1 * 128 * 128 doubly indirect blocks. 
+Yes. We chose a combination of direct, indirect, and doubly indirect. 
 
-We found this combination of multilevel index to be achieve the goals
+We found this implementation of multilevel index to achieve the goals
 of allowing the max filesize, while also keeping the level of indirection
-and number of block reads necessar low for small file numbers. Of course,
+and number of block reads necessary low for small file numbers. Of course,
 there could exist a pathological program that creates many files that
 need one block more than we support through indirect blocks. In this case,
-perhaps using more indirect blocks would be superior.
+using more indirect blocks would be superior.
 
           SUBDIRECTORIES
           ==============
@@ -210,7 +210,31 @@ perhaps using more indirect blocks would be superior.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* A directory. */
+struct dir 
+  {
+    struct inode *inode;                /* Backing store. */
+    off_t pos;                          /* Current position. */
+  };
 
+/* A single directory entry. */
+struct dir_entry 
+  {
+    block_sector_t inode_sector;        /* Sector number of header. */
+    char name[NAME_MAX + 1];            /* Null terminated file name. */
+    bool in_use;                        /* In use or free? */
+  }; 
+
+struct list directories;            /* List of open directories. */
+struct dir *cwd;                    /* Current working directory. */
+
+/* Mapping from file descriptor to directory. */
+struct fd_to_dir
+	{
+		int fd;
+		struct dir *dir;
+		struct list_elem elem;
+	};
 
 ---- ALGORITHMS ----
 
@@ -218,15 +242,15 @@ perhaps using more indirect blocks would be superior.
 >> do traversals of absolute and relative paths differ?
 
 First, we split the user specified path into the 'path' and the file 
-itself, using strtok_r. For example, '/a/b/c' would get broken into '/a/b'
-and 'c'. To get the 
+itself, using strrchr. For example, '/a/b/c' would get broken into '/a/b'
+and 'c'. Next, we open the directory that corresponds to path, in this
+case '/a/b'.
 
 If the first character of the path is '/', we set the directory to root.
 Else, we set the directory to that process's current working directory.
-From there, we used strtok_r to iterate over the directory names in a path.
-The function leverages dir_lookup and lookup, implemented in
-the starter code. The traversals only differ in setting the start 
-directory, then iteration runs from there. 
+From there, we use strtok_r to iterate over the directory names in a path,
+sequentially opening the subdir and scanning for the next subdir. The 
+function leverages dir_lookup and lookup, implemented in the starter code. 
 
 ---- SYNCHRONIZATION ----
 
@@ -246,12 +270,23 @@ lock, find the directory, and return failure.
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
-+++ Probably no.
+Our implementation keeps a directory from being removed when it
+is open by a process. To do so, we use the inode open_cnt field.
+In our dir_remove function, we check if the inode to remove is a dir,
+and if so, we assure the open_cnt is 1 (or, in other words, we are
+the only process with the directory open), then remove the directory
+entry from the inode. No other process will be able to lookup the directory,
+so we release the lock and close and remove the inode. 
 
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+We chose to represent the current directory of a process as an open 
+struct dir. These struct dirs are unique among processes and can have
+different pos values. This made more sense than using just the inode 
+pointer (no pos) or the dir_entry which is not unique among processes.
 
            BUFFER CACHE
            ============
@@ -357,8 +392,7 @@ course cache_lock.
 
 On pintos shutdown, in cache_cleanup, we tell the flusher and reader threads
 to die by setting "done" to true. Then, we manually cycle through the cache 
-array and write every dirty block back to disk. This step is necessary, as 
-blocks may have been changed or dirtied since the last flusher cycle. 
+array and write every dirty block back to disk. 
 
 >> C4: Describe your implementation of read-ahead.
 
@@ -373,11 +407,8 @@ there is a sector to be read. Reader calls cache_read on the specified
 sectors, so if that sector has been added in the meantime, nothing will
 happen. Otherwise, it will be added to the cache.
 
-Per our conversation with Mahesh at OH, we decided to read ahead only at the
-end of inode_read_at instead of on every call to cache_read. This results in 
-the exact same behavior as reading ahead on every call (if a file asks to read
-5 sectors, 6 will be brought into the cache) and reduces reader workload. 
-
+Per our conversation with a TA at OH, we decided to read ahead only at the
+end of inode_read_at rather than on every call to cache_read. 
 
 ---- SYNCHRONIZATION ----
 
@@ -394,8 +425,8 @@ code complexity and additional required tests and steps would have ultimately
 proved counter-productive. 
 
 In order to evict a block, the evict method must first lock_try_acquire that 
-blocks lock. If one process is actively reading / writing, lock acquisition
-will fail and the evicter will move on to the next block.
+block's lock. If one process is actively reading / writing, lock acquisition
+will fail and the evictor will move on to the next block.
 
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
@@ -405,17 +436,17 @@ hash. From here, it will follow two paths, one if it isn't dirty, and another
 if it is. 
 
 If it isn't dirty, the cache_lock is held until the new entry is added 
-back to the buffer_cache. No other thread will be able to seach the cache 
+back to the buffer_cache. No other thread will be able to search the cache 
 until these steps are completed. So once it has been chosen for eviction, no
 other thread will see it in the cache. If another process wants to add it back
 to the cache, it can do so. The block on disk is up to date. 
 
-If it is dirty, we add it to the flush hash before
-releasing the cache_lock. This way, if another process attempts access it,
-it will check to see that it is currently being flushed and wait on the flush
-condition to be broadcasted. It cannot attempt to add it back to the cache 
-yet, as the block on disk hasn't yet been updated. Once it sees that it has 
-been flushed (no longer in flush hash), it can proceed without worry. 
+If it is dirty, we add it to the flush hash before releasing the cache_lock. 
+This way, if another process attempts access it, it will check to see that 
+it is currently being flushed and wait on the flush condition to be 
+broadcasted. It cannot attempt to add it back to the cache yet, as the 
+block on disk hasn't yet been updated. Once it sees that it has been flushed 
+(no longer in flush hash), it can proceed without worry. 
 
 
 ---- RATIONALE ----
