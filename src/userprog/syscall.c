@@ -2,6 +2,8 @@
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -37,7 +39,13 @@ static tid_t sys_wait (tid_t tid);
 static mapid_t sys_mmap (int fd, void *addr);
 static void unmap (struct mmapped_file *mf);
 static void sys_munmap (mapid_t mapping);
+static bool sys_chdir (char *dir);
+static bool sys_mkdir (char *dir);
+static bool sys_readdir (int fd, char *name);
+static bool sys_isdir (int fd);
+static int sys_inumber (int fd);
 static struct fd_to_file *get_file_struct_from_fd (int fd);
+static struct fd_to_dir *get_dir_struct_from_fd (int fd);
 static int allocate_fd (void);
 static int allocate_mapid (void);
 
@@ -45,11 +53,12 @@ static struct lock filesys_lock;
 static struct lock fd_lock;
 static struct lock mapid_lock;
 
+static struct lock fd_lock;
+
 void 
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init (&filesys_lock);
   lock_init (&fd_lock);
   lock_init (&mapid_lock);
 }
@@ -88,6 +97,7 @@ validate_address (void *address, size_t size, bool writable)
   
   if (!start)
     sys_exit (-1);
+
 
   if (is_kernel_vaddr (start) || is_kernel_vaddr (end))
     sys_exit (-1);
@@ -201,7 +211,6 @@ static int
 sys_exec (const char *cmd_line)
 {
   validate_string (cmd_line);
- 
   return process_execute (cmd_line);
 }
 
@@ -221,9 +230,7 @@ sys_create (const char *file, unsigned initial_size)
 {
   validate_string (file);
 
-  syscall_acquire_filesys_lock ();
   bool success =  filesys_create (file, initial_size);
-  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -236,9 +243,7 @@ sys_remove (const char *file)
 {
   validate_string (file);
 
-  syscall_acquire_filesys_lock ();
   bool success = filesys_remove (file);
-  syscall_release_filesys_lock ();
 
   return success;
 }
@@ -253,23 +258,31 @@ sys_open (const char *file)
 {
   validate_string (file);
 
-  syscall_acquire_filesys_lock ();
-  struct file *f = filesys_open (file);
-  syscall_release_filesys_lock ();
-  if (!f)
+  bool isdir;
+
+  void *data = filesys_open (file, &isdir);
+  if (!data)
     return -1; 
 
-  /* Define a fd_to_file struct for the process to lookup by fd. */
-  struct fd_to_file *user_file = malloc (sizeof (struct fd_to_file));
-  if (!user_file)
+  struct fd_to_file *fd_to_data = malloc (sizeof (struct fd_to_file));
+  if (!fd_to_data)
     return -1;
+  fd_to_data->fd = allocate_fd ();
 
-  user_file->f = f;
-  user_file->fd = allocate_fd ();
+  if (isdir)
+    {
+      ((struct fd_to_dir *) fd_to_data)->dir = (struct dir *) data;
+      list_push_back (&thread_current ()->directories, 
+                      &fd_to_data->elem);
+    } 
+  else
+    {
+      /* Define a fd_to_file struct for the process to lookup by fd. */
+      fd_to_data->f = (struct file *) data;
+      list_push_back (&thread_current ()->files, &fd_to_data->elem);
+    }
 
-  list_push_back (&thread_current ()->files, &user_file->elem);
-
-  return user_file->fd;
+  return fd_to_data->fd;
 }
 
 /* System call filesize(fd) gets the filesize of the file corresponding
@@ -279,9 +292,10 @@ sys_filesize (int fd)
 {
   struct fd_to_file *f = get_file_struct_from_fd (fd);
   if (f == NULL)
-    return -1;
+    sys_exit (-1);
+  int size = file_length (f);
 
-  return file_length (f->f);
+  return size;
 }
 
 /* System call read(fd, buffer, size) reads from the file corresponding
@@ -320,9 +334,7 @@ sys_read (int fd, void *buffer, unsigned size)
   load_and_pin (buffer, size);
 
   /* Read from the file. */
-  syscall_acquire_filesys_lock ();
   read = file_read (f, buffer, size);
-  syscall_release_filesys_lock (); 
 
   unpin (buffer, size);
   
@@ -343,6 +355,8 @@ sys_write (int fd, void *buffer, unsigned size)
 {
   validate_address (buffer, size, !WRITABLE);
 
+  if (sys_isdir (fd))
+    sys_exit (-1);
   int written = 0;
   
   if (fd == STDOUT_FILENO) 
@@ -366,11 +380,12 @@ sys_write (int fd, void *buffer, unsigned size)
     sys_exit (-1);
   struct file *f = fd_->f;
 
+
   load_and_pin (buffer, size);
-  syscall_acquire_filesys_lock ();
   written = file_write (f, buffer, size);
-  syscall_release_filesys_lock ();
   unpin (buffer, size);  
+  written = file_write (f, buffer, size);
+    
   return written;
 }
 
@@ -383,9 +398,7 @@ sys_seek (int fd, unsigned position)
   if (f == NULL)
     sys_exit (-1);
   
-  syscall_acquire_filesys_lock ();
   file_seek (f, position);
-  syscall_release_filesys_lock ();
 }
 
 /* System call tell(fd) tells the user the position of the cursor
@@ -407,14 +420,96 @@ static void
 sys_close (int fd)
 {
   struct fd_to_file *f = get_file_struct_from_fd (fd);
-  if (f == NULL)
+  struct fd_to_dir *d = get_dir_struct_from_fd (fd);
+
+  
+  if (f != NULL)
+    {
+      file_close (f->f);
+      list_remove (&f->elem);
+    }
+  else if (d != NULL)
+    {
+      dir_close (d->dir);
+      list_remove (&d->elem);
+    }
+  else
     sys_exit (-1);
+}
+
+/* System call chdir(dir) changes the directory of the current thread
+   to the absolute or relative path denoted by DIR. */
+static bool
+sys_chdir (char *dir)
+{ 
+  validate_string (dir);
+
+  struct dir *d = dir_lookup_path (dir);
+
+  if (!d)
+    return false;
+
+  dir_close (thread_current ()->cwd);
+  thread_current ()->cwd = d;
+
+  return true;
+}
+
+/* System call mkdir(dir) creates a directory at location DIR. DIR can be 
+   a relative or absolute path, but all intermediate directories must 
+   exist. */
+static bool
+sys_mkdir (char *dir)
+{
+  validate_string (dir);
+  size_t len = strlen (dir);
+  char path[len], name[len];
+
+  dir_split_path (dir, path, name);
   
-  syscall_acquire_filesys_lock ();
-  file_close (f->f);
-  syscall_release_filesys_lock ();
+  struct dir *d = dir_lookup_path (path);
   
-  list_remove (&f->elem);
+  bool success = dir_create (d, name);
+  dir_close (d);
+  return success;
+}
+
+/* System call readdir(fd, name) reads the name of the directory */
+static bool
+sys_readdir (int fd, char *name)
+{
+
+  validate_address ((void **) name, 14);
+  struct fd_to_dir *fd_ = get_dir_struct_from_fd (fd);
+  if (fd_ == NULL)
+    return false;
+
+  bool success = dir_readdir (fd_->dir, name);
+  return success;
+}
+
+static bool
+sys_isdir (int fd)
+{
+  return get_dir_struct_from_fd (fd) != NULL;
+}
+
+static int 
+sys_inumber (int fd)
+{
+  struct fd_to_file *fd_file = get_file_struct_from_fd (fd);
+  if (fd_file)
+    {
+      struct inode *inode = file_get_inode (fd_file->f);
+      if (inode == NULL)
+        return -1;
+      return inode_get_inumber (inode);
+    }
+  struct fd_to_dir *fd_dir = get_dir_struct_from_fd (fd);
+  if (fd_dir == NULL)
+    return -1;
+
+  return dir_get_inumber (fd_dir->dir);
 }
 
 /* Iterate over the supplied file one page worth of bytes at a time, lazily 
@@ -470,9 +565,7 @@ sys_mmap (int fd, void *addr)
       fd == STDIN_FILENO || fd == STDOUT_FILENO)
       return MAP_FAILED;
 
-  syscall_acquire_filesys_lock ();
   struct file *file_to_map = file_reopen (f->f);
-  syscall_release_filesys_lock ();
 
   if (!mmap_file (addr, file_len, file_to_map))
     return MAP_FAILED;
@@ -502,9 +595,7 @@ unmap (struct mmapped_file *mf)
       page_remove_spte (next_page);
       next_page += PGSIZE;
     }
-  syscall_acquire_filesys_lock ();
   file_close (mf->file);
-  syscall_release_filesys_lock ();
   list_remove (&mf->elem);
   free (mf);
 }
@@ -604,6 +695,25 @@ syscall_handler (struct intr_frame *f)
     case SYS_MUNMAP:
       validate_address (esp, (ONE_ARG + 1) * sizeof (void *), WRITABLE);
       sys_munmap (esp[ONE_ARG]);
+    case SYS_CHDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_chdir (((char **)esp)[ONE_ARG]);
+      break;
+    case SYS_MKDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_mkdir (((char **)esp)[ONE_ARG]);
+      break;
+    case SYS_READDIR:
+      validate_address (esp, (TWO_ARG + 1) * sizeof (void *));
+      f->eax = sys_readdir (esp[ONE_ARG], ((char **)esp)[TWO_ARG]);
+      break;
+    case SYS_ISDIR:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_isdir (esp[ONE_ARG]);
+      break;
+    case SYS_INUMBER:
+      validate_address (esp, (ONE_ARG + 1) * sizeof (void *));
+      f->eax = sys_inumber (esp[ONE_ARG]);
       break;
     default:
       sys_exit (-1);
@@ -655,19 +765,20 @@ get_file_struct_from_fd (int fd)
   return NULL; 
 }
 
-/* Acquires the coarse file system lock. Should be called before every filesys 
-   operation. */
-void 
-syscall_acquire_filesys_lock ()
+/* Given an fd, finds the dir pointer through the current process's open
+   dir list. */
+static struct fd_to_dir *
+get_dir_struct_from_fd (int fd)
 {
-  lock_acquire (&filesys_lock);
+  if (fd <= STDOUT_FILENO) return NULL;
+  struct list_elem *dir_e;
+  struct list *dirs = &thread_current ()->directories;
+  for (dir_e = list_begin (dirs); dir_e != list_end (dirs); 
+       dir_e = list_next (dir_e))
+    {
+      struct fd_to_dir *d = list_entry (dir_e, struct fd_to_dir, elem);
+      if (d->fd == fd)
+        return d;
+    }
+  return NULL; 
 }
-
-/* Releases the coarse file system lock. Should be called after every filesys 
-   operation. */
-void 
-syscall_release_filesys_lock ()
-{
-  lock_release (&filesys_lock);
-}
-

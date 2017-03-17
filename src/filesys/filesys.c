@@ -2,10 +2,12 @@
 #include <debug.h>
 #include <stdio.h>
 #include <string.h>
+#include "filesys/cache.h"
 #include "filesys/file.h"
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/thread.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -20,14 +22,18 @@ filesys_init (bool format)
   fs_device = block_get_role (BLOCK_FILESYS);
   if (fs_device == NULL)
     PANIC ("No file system device found, can't initialize file system.");
-
+  cache_init ();
+  
   inode_init ();
   free_map_init ();
 
   if (format) 
     do_format ();
 
+  thread_current ()->cwd = dir_open_root ();
+
   free_map_open ();
+
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -36,6 +42,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  cache_cleanup ();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -46,11 +53,18 @@ bool
 filesys_create (const char *name, off_t initial_size) 
 {
   block_sector_t inode_sector = 0;
-  struct dir *dir = dir_open_root ();
+  size_t len = strlen (name);
+  char path[len], end[len];
+  dir_split_path (name, path, end);
+
+  struct dir *dir = dir_lookup_path (path);
+  if (!dir)
+    return false;
+
   bool success = (dir != NULL
                   && free_map_allocate (1, &inode_sector)
-                  && inode_create (inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector));
+                  && inode_create (inode_sector, initial_size, !ISDIR)
+                  && dir_add (dir, end, inode_sector));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
@@ -63,17 +77,43 @@ filesys_create (const char *name, off_t initial_size)
    otherwise.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
-struct file *
-filesys_open (const char *name)
+void *
+filesys_open (const char *name, bool *isdir)
 {
-  struct dir *dir = dir_open_root ();
+  size_t len = strlen (name);
+  if (len == 0)
+    return NULL;
+
+  char path[len + 1], end[len + 1];
+
+  if (strcmp(name, "/") == 0)
+    {
+      struct dir *root = dir_open_root();
+      struct inode *inode = dir_get_inode (root);
+      dir_close (root);
+      if (isdir != NULL)
+        *isdir = true;
+      else
+        return NULL;
+      return (void *) dir_open (inode);
+    }
+
+  dir_split_path (name, path, end);
+  
+  struct dir *d = dir_lookup_path (path);
+
   struct inode *inode = NULL;
 
-  if (dir != NULL)
-    dir_lookup (dir, name, &inode);
-  dir_close (dir);
+  if (d != NULL)
+    dir_lookup (d, end, &inode);
+  dir_close (d);
 
-  return file_open (inode);
+  if (isdir != NULL)
+    *isdir = inode_isdir (inode);
+
+  if (isdir != NULL && *isdir)
+    return (void *) dir_open (inode);
+  return (void *) file_open (inode);
 }
 
 /* Deletes the file named NAME.
@@ -83,8 +123,12 @@ filesys_open (const char *name)
 bool
 filesys_remove (const char *name) 
 {
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
+  size_t len = strlen (name);
+  char path[len], end[len];
+  dir_split_path (name, path, end);
+
+  struct dir *dir = dir_lookup_path (path);
+  bool success = dir != NULL && dir_remove (dir, end);
   dir_close (dir); 
 
   return success;
@@ -96,7 +140,7 @@ do_format (void)
 {
   printf ("Formatting file system...");
   free_map_create ();
-  if (!dir_create (ROOT_DIR_SECTOR, 16))
+  if (!dir_create_root (16))
     PANIC ("root directory creation failed");
   free_map_close ();
   printf ("done.\n");

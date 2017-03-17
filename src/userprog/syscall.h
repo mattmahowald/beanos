@@ -23,9 +23,15 @@ struct mmapped_file
 		struct file *file;
 	};
 
+struct fd_to_dir
+	{
+		int fd;
+		struct dir *dir;
+		struct list_elem elem;
+	};
+
 void syscall_init (void);
-void sys_exit (int);
-void syscall_acquire_filesys_lock (void);
-void syscall_release_filesys_lock (void);
+void sys_exit (int status);
+
 
 #endif /* userprog/syscall.h */

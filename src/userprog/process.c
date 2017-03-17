@@ -65,6 +65,9 @@ process_execute (const char *cmdline)
   struct thread *child = thread_get_from_tid (tid); 
   sema_down (&child->loaded);
 
+  child->cwd = dir_open (dir_get_inode (thread_current ()->cwd));
+  
+
   if (!child->load_success)
     return TID_ERROR;
 
@@ -196,6 +199,16 @@ dispose_resources (struct thread *cur)
       intr_set_level (old_level);
       free (file);        
     }
+  struct list *dirs = &cur->directories;
+  while (!list_empty (dirs))
+    {
+      struct list_elem *e = list_pop_front (dirs);
+      struct fd_to_dir *dir = list_entry (e, struct fd_to_dir, elem);
+      enum intr_level old_level = intr_disable ();
+      dir_close (dir->dir);
+      intr_set_level (old_level);
+      free (dir);        
+    }
 }
 
 /* Free the current process's resources. */
@@ -205,12 +218,13 @@ process_exit (void)
   struct thread *cur = thread_current ();
   dispose_resources (cur);
 
+
   page_spt_cleanup (&cur->spt);
 
 
   enum intr_level old_level = intr_disable ();
+
   file_close (cur->exec_file);
-  intr_set_level (old_level);
   
   /* Tell any children that parent is exiting. They are free to dispose of 
      resources as parent will never call wait. */
@@ -361,9 +375,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */ 
-  syscall_acquire_filesys_lock ();
-  file = filesys_open (filename);
-  syscall_release_filesys_lock ();
+  file = (struct file *) filesys_open (filename, NULL);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", filename);
@@ -451,9 +463,7 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   success = true;
   t->exec_file = file;
-  syscall_acquire_filesys_lock ();
   file_deny_write (file);
-  syscall_release_filesys_lock ();
  done:
   /* We arrive here whether the load is successful or not. */
   thread_current ()->load_success = success;
@@ -466,7 +476,6 @@ load (char *cmdline, void (**eip) (void), void **esp)
 
   return success;
 }
-
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */

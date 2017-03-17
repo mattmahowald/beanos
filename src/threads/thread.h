@@ -101,6 +101,8 @@ struct thread
 
     struct list files;                  /* List of open files. */
     struct file *exec_file;             /* Read only executable. */
+    struct list directories;            /* List of open directories. */
+    struct dir *cwd;                    /* Current working directory. */
 
     struct list children;               /* List of child threads. */
     struct child_thread *self;          /* Allocated struct for thread metadata */

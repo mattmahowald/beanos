@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "filesys/directory.h"
 #endif
 #include "vm/page.h"
 
@@ -308,6 +309,7 @@ thread_exit (void)
   process_exit ();
 #endif
 
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -489,10 +491,14 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Initialize userprogram data. */
   list_init (&t->files); 
+  list_init (&t->directories);
   list_init (&t->children);
   sema_init (&t->loaded, 0);
   sema_init (&t->ready_to_start, 0);
   t->load_success = true;
+
+  if (t != initial_thread && strcmp (name, "idle") && strcmp (name, "flusher") && strcmp (name, "reader"))
+    t->cwd = dir_reopen (thread_current ()->cwd);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

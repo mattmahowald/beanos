@@ -133,10 +133,17 @@ MMU contains the correct mapping of virtual address to physical address.
 page_unload does the work to maintain an accurate spte for a given virtual
 address, including writing loaded pages back to their origin on eviction or
 process completion.
+=======
+---- ALGORITHMS ----
+
+>> A2: In a few paragraphs, describe your code for locating the frame,
+>> if any, that contains the data of a given page.
+>>>>>>> no-vm
 
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
 
 We avoid the issue by using only the supplied user virtual addresses in the 
 kernel.
@@ -145,6 +152,7 @@ kernel.
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
+
 
 There are two cases in frame acquisition — when frames are still free, and 
 when no frames are free (i.e. a frame needs to be evicted). We'll walk through
@@ -186,6 +194,12 @@ iterable, it would have provided no advantage in our implementation (each
 spte holds a pointer to the frame it owns, so we do not ever have to traverse
 the list to find a particular frame).
 
+---- RATIONALE ----
+
+>> A5: Why did you choose the data structure(s) that you did for
+>> representing virtual-to-physical mappings?
+
+
                PAGING TO AND FROM DISK
                =======================
 
@@ -194,6 +208,7 @@ the list to find a particular frame).
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
 
 See also A1.
 
@@ -217,6 +232,8 @@ static struct list frame_used_list;
 
 /* List element used to keep a persistent clock hand among evictions. */
 static struct list_elem *clock_hand;
+
+
 
 ---- ALGORITHMS ----
 
@@ -363,7 +380,6 @@ frame table lock during IO operations, however. We simply pin the frame
 involved in the IO to ensure it remains in the frame table and is not 
 evicted.
 
-
              MEMORY MAPPED FILES
              ===================
 
@@ -420,6 +436,9 @@ supplemental page table, we check to see if the SPT already has a page at that
 virtual address space. If it does, then there is overlap, so we first remove 
 any already-added SPTEs associated with the mmap call in question and return
 MAP_FAILED.
+
+>> C3: Explain how you determine whether a new file mapping overlaps
+>> any existing segment.
 
 ---- RATIONALE ----
 
