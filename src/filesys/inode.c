@@ -384,7 +384,6 @@ bool
 inode_create (block_sector_t sector, off_t length, bool isdir)
 { 
   struct inode_disk *disk_inode = NULL;
-  // printf("Creating file of size %d\n", length);
   ASSERT (length >= 0);
   /* If this assertion fails, the inode structure is not exactly
      one sector in size, and you should fix that. */
@@ -510,8 +509,7 @@ deallocate (struct inode *inode)
     }
 
   free_map_release (doubly_indirect, 1);
-  if (inode->sector != 0 && inode->sector != 1) // TODO don't think we need this
-    free_map_release (inode->sector, 1);
+  free_map_release (inode->sector, 1);
 }
 
 
