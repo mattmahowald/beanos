@@ -8,6 +8,7 @@
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
+#include "userprog/syscall.h"
 
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. 
@@ -95,8 +96,8 @@ static size_t allocate_indirect_blocks (struct inode_disk *inode, size_t start,
 static size_t allocate_doubly_blocks (struct inode_disk *inode, size_t start, 
                                       size_t end);
 static bool extend_file (struct inode_disk *inode, size_t length);
-static size_t extension_helper (struct inode *inode, off_t size, off_t offset);
-
+static size_t extend_and_write (struct inode *inode, off_t size, 
+                                off_t offset);
 static block_sector_t sector_index_to_sector (block_sector_t sector_index, 
                                               const struct inode *inode);
 
@@ -224,6 +225,9 @@ inode_init (void)
   list_init (&open_inodes);
 }
 
+/* Allocates the number of direct blocks needed in the freemap, loads
+   the sector numbers into the disk_inode, and allocates the blocks
+   themselves. */
 static size_t
 allocate_direct_blocks (struct inode_disk *inode, size_t start_sectors, 
                         size_t end_sectors)
@@ -243,6 +247,9 @@ allocate_direct_blocks (struct inode_disk *inode, size_t start_sectors,
   return num_direct;
 }
 
+/* Allocates the number of indirect blocks needed in the freemap, loads
+   the sector numbers into the disk_inode, and allocates the blocks
+   themselves. */
 static size_t
 allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors, 
                           size_t end_sectors)
@@ -276,6 +283,9 @@ allocate_indirect_blocks (struct inode_disk *inode, size_t start_sectors,
   return num_indirect;
 }
 
+/* Allocates the number of doubly indirect blocks needed in the freemap, loads
+   the sector numbers into the disk_inode, and allocates the blocks
+   themselves. */
 static size_t
 allocate_doubly_blocks (struct inode_disk *inode, 
             size_t start_sectors, size_t end_sectors)
@@ -288,7 +298,8 @@ allocate_doubly_blocks (struct inode_disk *inode,
     goto done;
   
   /* Index in doubly blocks of last existing and last to allocate sector. */
-  size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
+  size_t start_offset = start_sectors <= NUM_DIRECT + NUM_INDIRECT ? 
+                          0 : start_sectors - NUM_DIRECT - NUM_INDIRECT;
   size_t end_offset = end_sectors - NUM_DIRECT - NUM_INDIRECT;
 
   /* Read current doubly indirect sector into doubly_indirect. */
@@ -310,7 +321,8 @@ allocate_doubly_blocks (struct inode_disk *inode,
   if (first_indirect % NUM_INDIRECT == 0)
     to_allocate++;
 
-  /* If not clean break for new indirect, we'll have to go in and edit an already allocated indirect block. */
+  /* If not clean break for new indirect, we'll have to go in and edit an 
+     already allocated indirect block. */
   size_t start = start_offset % NUM_INDIRECT;
   bool read = start != 0;
 
@@ -322,33 +334,35 @@ allocate_doubly_blocks (struct inode_disk *inode,
     goto done;
 
   size_t indirect_index;
-  for (indirect_index = first_indirect; indirect_index <= last_indirect; indirect_index++)  
-  {
-    /* Handle case where last block might not be entirely filled. */
-    size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT 
-                                                 : NUM_INDIRECT;
+  for (indirect_index = first_indirect; indirect_index <= last_indirect; 
+       indirect_index++)  
+    {
+      /* Handle case where last block might not be entirely filled. */
+      size_t end = indirect_index == last_indirect ? end_offset % NUM_INDIRECT 
+                                                   : NUM_INDIRECT;
 
-    size_t total = end - start; /* partially filled first block. */
-    if (read)
-      cache_read (doubly_indirect->sectors[indirect_index], temp_indirect, 0, BLOCK_SECTOR_SIZE);
-    
-    /* Allocate direct blocks in temporary indirect block. */
-    if (total > 0 && !free_map_allocate_not_consecutive (total, 
-                                    &temp_indirect->sectors[start]))
-      goto done;
-    
-    /* Write zeros to each newly allocated sector. */
-    size_t i;
-    for (i = start; i < end; i++)
-      cache_write (temp_indirect->sectors[i], zeros, 0, BLOCK_SECTOR_SIZE);
-    
-    /* Write temporary indirect block back to doubly indirect sector. */
-    cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, 
-                 BLOCK_SECTOR_SIZE);
-    sectors_written += total;
-    read = false;
-    start = 0;
-  }
+      size_t total = end - start; /* partially filled first block. */
+      if (read)
+        cache_read (doubly_indirect->sectors[indirect_index], temp_indirect,
+                     0, BLOCK_SECTOR_SIZE);
+      
+      /* Allocate direct blocks in temporary indirect block. */
+      if (total > 0 && !free_map_allocate_not_consecutive (total, 
+                                      &temp_indirect->sectors[start]))
+        goto done;
+      
+      /* Write zeros to each newly allocated sector. */
+      size_t i;
+      for (i = start; i < end; i++)
+        cache_write (temp_indirect->sectors[i], zeros, 0, BLOCK_SECTOR_SIZE);
+      
+      /* Write temporary indirect block back to doubly indirect sector. */
+      cache_write (doubly_indirect->sectors[indirect_index], temp_indirect, 0, 
+                   BLOCK_SECTOR_SIZE);
+      sectors_written += total;
+      read = false;
+      start = 0;
+    }
 
   /* Write doubly indirect back to disk. */
   cache_write (inode->doubly_indirect, doubly_indirect, 0, BLOCK_SECTOR_SIZE);
@@ -463,6 +477,7 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+/* Deallocates all of the blocks in the inode. */
 static void
 deallocate (struct inode *inode)
 {
@@ -522,19 +537,9 @@ inode_close (struct inode *inode)
       /* Remove from inode list and release lock. */
       /* Deallocate blocks if removed. */
       if (inode->removed) 
-        {
-          // and cache_close
-          // TODO add a free_map_release_all, as well as free map lock
-          deallocate (inode);
-          // free_map_release (inode->sector, 1);
-          // free_map_release (inode->data.start,
-          //                   bytes_to_sectors (inode->data.length)); 
-        }
+        deallocate (inode);
       else
-        {
-          cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
-        }
-
+        cache_write (inode->sector, &inode->length, 0, sizeof (size_t));
       free (inode); 
     }
 }
@@ -590,6 +595,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   return bytes_read;
 }
 
+/* Extends the file by adding the appropriate number of blocks. */
 static bool
 extend_file (struct inode_disk *inode, size_t new_size)
 {
@@ -613,13 +619,15 @@ extend_file (struct inode_disk *inode, size_t new_size)
       return true;
     }
   else
-    PANIC ("Should have allocated %d, instead allocated %d", num_end_sectors - num_start_sectors, num_allocated);
+    sys_exit (-1);
 
   return true;
 }
 
+/* Returns the length of the inode after potentially extending and writing
+   to the inode. */
 static size_t
-extension_helper (struct inode *inode, off_t size, off_t offset)
+extend_and_write (struct inode *inode, off_t size, off_t offset)
 {
   lock_acquire (&inode->extension_lock);
   size_t length = inode->length;
@@ -640,7 +648,6 @@ extension_helper (struct inode *inode, off_t size, off_t offset)
       cache_read (inode->sector, inode_disk, 0, BLOCK_SECTOR_SIZE);
       if (!extend_file (inode_disk, offset + size))
         {
-          // TODO maybe do cleanup here
           lock_release (&inode->extension_lock);
           free (inode_disk);
           return 0;
@@ -668,7 +675,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     lock_release (&inode->lock);
     return 0;
   }
-  size_t length = extension_helper (inode, size, offset);
+  size_t length = extend_and_write (inode, size, offset);
   if (length == 0)
     return 0;
   while (size > 0) 
@@ -705,12 +712,14 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   return bytes_written;
 }
 
+/* Acquire the directory lock. */
 void
 inode_acquire_dir_lock (struct inode *inode)
 {
   lock_acquire (&inode->dir_lock);
 }
 
+/* Release the directory lock. */
 void
 inode_release_dir_lock (struct inode *inode)
 {
@@ -734,7 +743,6 @@ inode_deny_write (struct inode *inode)
 void
 inode_allow_write (struct inode *inode) 
 {
-  // TODO sync this as well
   ASSERT (inode->deny_write_cnt > 0);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
   lock_acquire (&inode->lock);
