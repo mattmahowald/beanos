@@ -36,7 +36,6 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
-#include "vm/frame.h"
 #endif
 
 /* Page directory with kernel mappings only. */
@@ -121,7 +120,6 @@ main (void)
   serial_init_queue ();
   timer_calibrate ();
 
-
 #ifdef FILESYS
   /* Initialize file system. */
   ide_init ();
@@ -129,12 +127,11 @@ main (void)
   filesys_init (format_filesys);
 #endif
 
-    frame_init ();
-
   printf ("Boot complete.\n");
   
   /* Run actions specified on kernel command line. */
   run_actions (argv);
+
   /* Finish up. */
   shutdown ();
   thread_exit ();

@@ -1,27 +1,31 @@
-            +---------------------------+
-            |           CS 140          |
-            | PROJECT 3: VIRTUAL MEMORY |
-            |       DESIGN DOCUMENT     |
-            +---------------------------+
+             +--------------------------+
+             |         CS 140           |
+             | PROJECT 2: USER PROGRAMS |
+             |     DESIGN DOCUMENT      |
+             +--------------------------+
 
 ---- GROUP ----
 
 >> Fill in the names and email addresses of your group members.
 
-Matthew Mahowald <mcm2018@stanford.edu>
 Scott Morris <swmorris@stanford.edu>
+Matthew Mahowald <mcm2018@stanford.edu>
 
 ---- PRELIMINARIES ----
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+None
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
-            PAGE TABLE MANAGEMENT
-            =====================
+None
+
+               ARGUMENT PASSING
+               ================
 
 ---- DATA STRUCTURES ----
 
@@ -29,158 +33,80 @@ Scott Morris <swmorris@stanford.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-PAGE.H
-/* States the location of the page's frame. */
-enum page_location
-{
-  DISK,  /* Page is a file located on disk. */
-  EXEC,  /* Page is an executable file. */
-  SWAP,  /* Page has been evicted and placed on the swap. */
-  ZERO   /* Page does not exist anywhere, must be alloc'd and zero'd. */
-};
-
-/* File data held by an spte. */
-struct spte_file
-{
-  struct file *file;
-  off_t ofs;
-  size_t read;
-  size_t zero;
-};
-
-struct spte 
-{
-  struct hash_elem elem;        /* Hash element for the spt. */
-  uint32_t *pd;                 /* Page directory for the spte's thread. */
-  enum page_location location;  /* Location of the frame. */
-  void *vaddr;                  /* User virtual address. */
-  struct frame *frame;          /* Kernel virtual address. */
-  struct spte_file file_data;   /* File information. */
-  bool writable;                /* Process has read-write privileges. */
-  swapid_t swapid;              /* Swap ID for pages written to the swap. */
-  struct lock spte_lock;        /* Lock for each virtual page. */
-};
-
-FRAME.H
-
-struct frame 
-{
-    void *paddr;              /* The kernel virtual address of the frame. */
-    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
-    struct list_elem elem;    /* List element for the used and free lists. */
-    bool pinned;              /* Pinned flag to keep frames from eviction. */
-};
-
-struct list frame_free_list;    /* Keeps track of free frames. */
-struct list frame_used_list;    /* Keeps track of frames currently in use. */
-
-struct lock free_lock;          /* Used to sync frame_free_list. */
-struct lock used_lock;          /* Used to sync frame_used_list. */
-
-static struct list_elem *clock_hand; /* Keeps track of clock hand for 
-                                        eviction algorithm. */
-THREAD.H
-
-struct hash spt;                    /* Supplementary page table. */
-void *esp;                          /* Stack pointer. */
+We made no such changes. 
 
 ---- ALGORITHMS ----
 
->> A2: In a few paragraphs, describe your code for accessing the data
->> stored in the SPT about a given page.
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
 
-If a page has already been loaded into a frame, then that frame address
-is already associated with the user page in the process's page directory
-and the process will be able to directly access that data without furthur
-intervention.
+We implemented argument parsing by passing the command line through
+to setup_stack in process.c. 
 
-However, if a user page has not yet been loaded into a frame, the process
-will page fault and enter the page fault handler. Once we do some basic
-validation (that the page fault occured in user address space, that it 
-was not trying to write to read only memory, etc), we check that process's
-SPT. If we find it in the SPT, we get a free or evicted frame and load that 
-page's data into the frame (in page_load). This data could be in three 
-locations:
+As a sidenote, one tangential consequence of this decision was that we 
+str_tok_r the command line in exec_process to get the first token (filename),
+which we need to both give the process the correct name and make sure that 
+load loads the correct executable file. This seems repetetive, but we decided 
+that it was cleaner in the long run than to parse the command line earlier
+(say, in process_exec) and try to pass those tokens along. As a result of 
+this, we also removed the const from the cmdline input to load, as that string
+will in fact be changed in setup stack by strtok_r. 
+ 
+In setup_stack, on success of installing the page onto the stack at PHYS_BASE,
+we parse the tokens passed into the command line from left to right, pushing 
+the ASCII strings to the stack from left to right (as the order of the string
+literals does not matter) with single null terminator characters in between
+each string. This is completed in our push_args_to_stack helper funciton. 
+We keep track of the arg count in a variable argc and the start
+addresses of each string in argv. We also keep track of the total bytes 
+written to the stack, and make sure that this number remains within the 
+stack size.
 
-1) The frame could be on DISK (includes the EXEC enum case). In this case,
-   our implementation reads the data back into the newly populated spte's
-   frame. The information of where to read from is stored in the spte_file
-   struct, which is loaded in on creation of the spte. One consideration is
-   writing back dirtied pages, which is handled in page_unload.
-2) The frame could have been evicted and written to the swap partition. 
-   This case leverages our swap api, which reads the memory corresponding 
-   to the swapid stored in the spte using the devices/block.c block_read 
-   call.
-3) In the final case, the page_load function is called from growing or
-   initializing the stack, which requests a zero'd out page. This memsets 
-   the frame to zero.
+Once finished we round esp down to the nearest multiple of 4, as recommended 
+in the assignment handout. At this point, we check to make sure our args will
+not overflow the stack. We know how many bytes we will furthur need to push 
+(a pointer for each argc, a null terminator for argv, argv, argc and room for
+a return value) and check that this is within the stack bounds. If not, we 
+free the stack page and return false to signify failure. 
 
-Finally, page_load updates the pagedir for the current thread so that the
-MMU contains the correct mapping of virtual address to physical address.
+Now, we push null terminator for the argv array, and then push from right to 
+left (from argc - 1 to 0) the pointers to the string literals. Finally, we 
+push the address of argv[0] onto the stack, followed by the value argc, and 
+then finally update the esp to include space for the return value.
 
-page_unload does the work to maintain an accurate spte for a given virtual
-address, including writing loaded pages back to their origin on eviction or
-process completion. 
-
->> A3: How does your code coordinate accessed and dirty bits between
->> kernel and user virtual addresses that alias a single frame, or
->> alternatively how do you avoid the issue?
-
-We avoid the issue by using only the supplied user virtual addresses in the 
-kernel.
-
----- SYNCHRONIZATION ----
-
->> A4: When two user processes both need a new frame at the same time,
->> how are races avoided?
-
-There are two cases in frame acquisition — when frames are still free, and 
-when no frames are free (i.e. a frame needs to be evicted). We'll walk through
-how race conditions are avoided in both cases. 
-
-In order to recieve a frame, a process first must acquire the free_lock. This
-prevents any other process from accessing the frame free list. If the list is 
-not empty, the first free frame is popped before releasing the lock. Thus, the
-free list will always remain intact.
-
-If no frame is free, a process releases the free_lock and begins the eviction
-process, the first step being acquiring a lock on the used frame list called
-used_lock. Subsequently, we follow the eviction policy described in B2 with
-synch details included.
-
-Because of the used_lock, only one process at a time can loop through the 
-used list for eviction candidates. Upon finding a frame to evict, we remove 
-that frame from the used_list before releasing the used_lock so that no other
-process will ever see that frame and attempt to use / evict it.
-
-Finally, this is all done in a while loop. The algorithm tries the free list,
-then tries to evict, then repeats. We initially looped on evict alone after 
-checking the free list, but realized this introduced a race where the system
-could free all pages before the process could find one to evict.
 
 ---- RATIONALE ----
 
->> A5: Why did you choose the data structure(s) that you did for
->> representing virtual-to-physical mappings
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
 
-For the spt of each thread, we created a hash table to map the user virtual
-addresses to the spte and frame structs. This allowed us to achieve constant 
-time lookup of virtual addresses' data. The only time we need to iterate over
-the spt is in cleanup.
+strtok_r is the reentrent vesrion of strtok. strtok keeps track of the "save"
+pointer as static global variable, which means that multiple threads calling 
+strtok concurrently (or even the same thread calling strtok at different 
+times, say within a nested loop) would create wildly unpredictable results.
 
-For our frame data structure, we decided to use two lists: a free list and
-a used list. The free list is a list of unused frames that is populated in 
-frame_init with palloc'd pages. This list allows for immediate access to
-a free frame, if available. Once all frames are filled, our used list becomes 
-the data structure that is circularly traversed by the clock hand to determine
-which pages to evict. We decided a list is the most compatible with the
-clock algorithm, as it can be iterated over easily. While a hash is also
-iterable, it would have provided no advantage in our implementation (each 
-spte holds a pointer to the frame it owns, so we do not ever have to traverse
-the list to find a particular frame).
+By having the "save" pointer supplied by the user, strtok_r eliminates this 
+risk.
 
-               PAGING TO AND FROM DISK
-               =======================
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+The first and most easily apparent advantage that we identified was reducing 
+the amount of work done by the kernel. Shell seperation of the arguments 
+removes expensive string parsing operations from the OS and allows a more
+efficient kernel.
+
+The second and perhaps larger advantage is flexibility. With the Unix 
+approach, the shell has the flexibility to do whatever it wants with 
+the arguments as it parses them. A shell can do more robust error checking, 
+add functionality to execute commands like "grep --- > res.txt," etc. 
+Furthurmore, multiple shells can run on the same OS. To change argument 
+parsing, one can bring in or write a new shell. With argument seperation in 
+the OS, the user looses this ability.
+
+                 SYSTEM CALLS
+                 ============
 
 ---- DATA STRUCTURES ----
 
@@ -188,275 +114,403 @@ the list to find a particular frame).
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-See also A1.
 
-FRAME.H
+thread.h
+    // files is used to close all resources when a user program
+    // terminates.
+    struct list files;              /* List of open files. */
+    
+    // identifies executable currently in use
+    struct file *exec_file;         /* Read only executable. */
 
-struct frame 
-{
-    void *paddr;              /* The kernel virtual address of the frame. */
-    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
-    struct list_elem elem;    /* List element for the used and free lists. */
-    bool pinned;              /* Pinned flag to keep frames from eviction. */
-};
+    // used to identify children to wait on as well as signal
+    // to children when parent is dying
+    struct list children;           /* List of child threads. */
+    
+    // points to the child thread's own object that is held in the parents
+    // children list, which the child uses to check if the parent has exited
+    // and leave its exit status
+    struct child_thread *self;      /* Allocated struct for thread metadata.*/
+    
+    // used to ensure in the parent thread that the child is loaded 
+    struct semaphore loaded;        /* Semaphore to signal when loaded. */
+    
+    // used to ensure in the child thread that the parent is done reading
+    struct semaphore read_to_start; /* Semaphore to signal when done. */
+    
+    // set by the child thread to indicate success or failure to parent
+    bool load_success;              /* Indicator of succesful load. */
 
-/* Locks to guard frame table operations. */
-static struct lock free_lock;
-static struct lock used_lock;
+process.h
+   
+  // used by parent to keep track of children, as well as facilitate 
+  // P/C communication
+  struct child_thread {
+    // used to get the thread from the child_thread struct
+    struct thread *t;
+    
+    // upped by the child thread upon exit
+    // downed by the parent on wait
+    struct semaphore done;
+    
+    // used to find a thread tid if the child thread has 
+    // exited and freed its page
+    tid_t tid;
+    
+    // used to communicate exit_status to parent
+    int exit_status;
+    
+    // list elem for parent->children
+    struct list_elem elem;
+    
+    // used by the parent to identify if the thread field
+    // is safe to edit
+    bool running;
+  };
 
-/* Frame table. */
-static struct list frame_free_list;
-static struct list frame_used_list;
+syscall.h
+  // used to get files from file descriptors
+  struct fd_to_file 
+    {
+      // unique id for each file
+      int fd;
+      // corresponding file
+      struct file *f;
+      // used to add to thead->files list
+      struct list_elem elem;
+    };
 
-/* List element used to keep a persistent clock hand among evictions. */
-static struct list_elem *clock_hand;
+syscall.c
+  // lock used to guard filesystem from race conditions
+  static struct lock filesys_lock;
+  // incremented each time a file is opened to determine
+  // the next file descriptor to assign 
+  static int next_fd = STDOUT_FILENO + 1; 
+  // used to protect the global next_fd int
+  static struct lock fd_lock;
+
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+File descriptors are unique within the entire OS and within each process.
+We chose to implement this method, as the tradeoff allows us to save 
+sizeof (int) bytes per thread for next_fd. Because we only have a global int
+to keep track of the next file descriptor, we must guard the critical
+code of incrementing that int, necessitating a lock in our
+allocate_fd function.
+
+In our implementation we defined a struct that maintains the fd as a 
+unique identifier, a pointer to the file, and a list_elem so that the 
+process can maintain a list of all its files. This relationship allows
+a single process to get a file from an fd, which only executes correctly
+if the file is in the process's "files" list. In this way, we are 
+protecting processes from calling close, seek, or tell on another process's 
+file descriptor, verifying that our fd sets are unique to the process
+as well as the OS.
 
 ---- ALGORITHMS ----
 
->> B2: When a frame is required but none is free, some frame must be
->> evicted.  Describe your code for choosing a frame to evict.
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
 
-We use the one-hand clock cycle algorithm. One system-wide reference to a
-used frame list element iterates over the used list, evicting if accessed
-is set to false or setting the bit to false if it is true. 
+For both reading and writing user data from the kernel, the first step is 
+to check that the entirity of the supplied buffer is user space and that it 
+all is mapped. To do so, we simply pass the starting point and the supplied 
+size to our validate_address method, which verifies the aforementioned 
+conditions. It rounds the starting address to the nearest page, and checks 
+that every possible page containing buffer's bytes is mapped. 
 
-To keep processes from evicting the same frame, we used a lock on the 
-frame table (specifically the used frame list). This lock is acquired
-and held while our eviction algorithm selects a frame. The clock hand
-reference is guarded by this lock. See paragraphs 3&4 of A4 for more detail.
+Next, we get the requested file from the fd using the get_file_struct_from_fd
+helper method that we wrote. As long as the file exists, we lock the file 
+system and simply read or write the requested number of bytes. 
 
-As described in A4, we remove the chosen frame before releasing the used_lock
-to avoid evicting frames that are already in the process of eviction.
+There are two special cases: STDIN and STDOUT. 
 
-Finally, as described in B5, we use a lock per spte, which must be acquired
-to atomically test if the eviction algorithm can evict and subsequently does 
-evict a frame. We avoided the issue of deadlock here, as described in B5. 
-Rather than lock_acquire this lock, we lock_try_acquire. If this lock is 
-already held, then it is most likely involved in some sort of I/O (either
-loading or unloading). It doesn't make sense to pause eviction for the whole 
-system just because one frame is waiting on disk. So, if we can't acquire 
-this lock on first attempt, we just skip this frame and move on. 
+If a user process attempts to write to STDIN or read from STDOUT, we return
+-1. 
 
->> B3: When a process P obtains a frame that was previously used by a
->> process Q, how do you adjust the page table (and any other data
->> structures) to reflect the frame Q no longer has?
+When a process writes to STDOUT, we putbuf 512 characters at a time. 
 
-Our spte keeps track of the pagedir of its owner thread. When a process
-P evicts a page belonging to Q, P can clear the virtual address from Q's
-pagedir through the spte. Additionally, when a page is swapped, we keep 
-track of the swap id and update the spte's location to SWAP.
+When a process reads from STDIN, we input_getc however many characters are 
+requested. 
 
-Q's spte lock is acquired as we update its eviction data to ensure
-synchronization (i.e. no one tries to write to the data that is in the
-process of getting evicted. It's frame value is set to NULL and the 
-pagedir is cleared. 
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
 
-One important note is the pagedir is cleared immediately. 
+In answering this question we are making the assumption that the  
+only calculating page table lookups for the buffer's memory itself.
 
->> B4: Explain your heuristic for deciding whether a page fault for an
->> invalid virtual address should cause the stack to be extended into
->> the page that faulted.
+In a call to read or write or any system call that would cause data to be 
+validated, we would additionally have to validate the supplied stack pointer
+and the position of the buffer pointer on the call stack. We are assuming 
+you do not intend us to include this in our calculations.
 
-As described in the assignment spec, a page fault within 32 bytes, defined
-as PUSHA_BYTES, of the stack pointer is probably an attempt to grow the 
-stack. However, it does not suffice to grow the stack only if the fault
-is within the valid region between the esp and esp - PUSHA_BYTES. Because
-we lazily allocate to the stack, meaning that when a 20kb array is declared
-on the stack no actual memory allocation occurs for those 20kbs--the only 
-change is to the stack pointer, our heuristic also includes any address
-below PHYS_BASE and above the stack pointer. We also impose a limit on the 
-size of any given process's stack. If the process attempts to grow the stack
-beyond this limit, we do not allocate a new stack page.
+*Full page*
+
+Least: One. If the full page starts at a new page, We won't change the address
+       by rounding to the nearest page. We check this page, and then as the end
+       address is still on that page, we don't check any other pages.   
+
+Most:  Two. Start and end are on different pages, so we round down start and 
+       check the first page. We move to the next page, realize that end has 
+       not yet been reached, and thus validate the next page.
+       
+*2 bytes of data*
+
+Least: One. Same as for a full page. If the two bytes are in the same page, 
+       then only one call will be made.
+       
+Most:  Two. Same as for a full page. If one byte is at the end of one page 
+       and the next byte is at the beginning of the next, then both pages
+       will be examined.
+
+Having chosen to check the page table within the system call, there is no room
+for improvment. Our implementation of validate_address assures that the least 
+number of calls to get_page possible are made. That being said, if we had 
+chosen to edit the page fault handler instead, we could avoid these look-ups 
+entirely.
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+On termination, every thread (regardless if killed by kernel, etc) will
+check if it corresponds to a child_thread struct, and if so, leave its
+return value, sema-up the corresponding "done" semaphore, and set "running"
+to false.
+
+Our system call wait does nothing but call process_wait with the given
+thread id. Following is an overview of this process_wait call.
+
+First, the parent / waiting thread iterates over its list of 
+children to find the child with the given tid. This is not racy,
+as a parent thread is the only one that will add or remove from 
+its list. If no child is found, return -1. An invalid TID, that of 
+a process not associated with parent, or a child that has already been
+reaped will not be found on this list, so those three special cases are 
+implicitly dealt with.
+
+Second, we do the actual waiting by downing the semaphore "done" associated
+with that child_thread struct. We chose to keep this semaphore in the child_
+thread struct instead of the child's thread struct itself, so that the child
+could deallocate itself without risk of a parent attempting to down 
+a no longer exiting sema.
+ 
+If the child has exited, the sema has a value of 1, so the parent proceeds. If
+not, it waits until the process exits. 
+
+Now, the parent harvests the exit_status that the child has left in the 
+child_thread struct, removes that child_thread struct from its child list
+(to prevent multiple wait calls to the same tid) and frees that struct.
+
+Finally, it returns the exit_status. 
+
+This is a fairly high-level overview. For a more detailed explanation of how
+we avoid race conditions and ensure that all resources are freed, see (B8). 
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+In our system call handler, we implemented an error-check solution
+that validates all of the addresses directly on the stack, then lets each
+individual system call validate the buffers and strings. This systematic
+approach gives the code a recognizable pattern within each case of the switch
+statement of "validate stack; execute syscall;". Because system calls 
+range from 0 to 3 arguments, we had to special case each different system 
+call's stack validation.
+
+Within each system call, we validate the pointee of any user-supplied 
+pointers, such as strings or buffers.
+
+To actually validate these pointers and chunks of memory, we wrote a 
+helper that takes an address and a size called validate_address (described
+in question B3). We also added a different functio for validating string 
+addresses. 
+
+String validation would require a call to strlen to determine the size to be 
+validated, but if the page on which the string resides is unmapped, strlen 
+causes a seg fault. Additionally, if the string runs over a border between
+two pages, and the second page is unmapped, strlen will fail. To deal with
+this, our implementation iterates over every character, checking at the 
+page breaks to see if the page is valid and mapped. If not, we exit, if 
+it is, we continue. The loop ends when the null terminator is found.
+
+These two helper functions, as well as checking done in our switch
+statement, helps avoid obscuring the actual function of our system calls. If 
+memory validation is required, we do it in the first line and then proceed 
+with our actual functionality. By having a consistent response to invalid 
+memory actions (sys_exit (-1)) that we put directly in validate_address,
+we avoid having to check a return value in the syscall implementations as 
+well.
+
+When any error is detected, we call sys_exit(-1). This terminates the thread
+and calls process_exit (), in which we release all locks and free allocated 
+memeory.
+
+We'll walk through a sample call to write and show how our implemtation 
+rigously error checks without unnecessary obfuscation. First we read the
+syscall number off the base of the stack. Before dereferencing esp, we
+pass it to validate_address(). Next, we enter the switch statement and 
+proceed to SYS_WRITE. Because we know that write takes three args, we 
+validate the range of addresses from "esp" to "esp + (3 args + 1 syscall) 
+* (sizeof (void *)." This way, we guarentee that each argument passed is 
+in valid user address space. We pass the dereferenced values of each argument
+into our sys_write call. In sys_write, we still have a pointer to a buffer. 
+So, before proceding with our write implementation, we validate the range of 
+addresses from buffer to buffer + size - 1. This we do in one call to 
+validate_address(), which takes both a pointer and a range to check. From 
+here onwards, all memory has been validated so we proceed as normal without 
+furthur obfuscation. If any of these validation tests had failed, we would 
+have immediately sys_exited with a -1 exit status. 
 
 ---- SYNCHRONIZATION ----
 
->> B5: Explain the basics of your VM synchronization design.  In
->> particular, explain how it prevents deadlock.  (Refer to the
->> textbook for an explanation of the necessary conditions for
->> deadlock.)
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
 
-We use three main synchronization tools: a coarse lock on the frame list,
-fine locks on every spte entry, and a pinning flag within each frame struct. 
-The potential for deadlock arises in a couple of cases:
+In the child's thread struct, we added two semaphore's ("load" and 
+"ready_to_start") and one bool ("load_success"). The process calling
+exec creates the child thread, and immediately sema-down's the child's load 
+sema. The child does not up this sema until it reaches the end of the load
+function, and only does so after it has updated its load_success field. 
+Immediately following this, it sema-downs its "ready_to_start" sema. This 
+avoids a race conditon where the child would run to completion, exit and 
+deallocate itself before the parent had a chance to even check that child's
+load_success. Once the parent has harvested the load_success value (and 
+return -1 if load failed) and set up the parent child relationship, it
+sema-ups the child's ready_to_start. This allows the child to begin 
+execution.
 
-1) process P loads a frame that process Q is trying to evict. This is the
-case that is detailed in B7. The case for deadlock arises if process P 
-acquires its own spte_lock, process Q acquires the used_lock, then process
-P attempts to acquire the used_lock while Q attempts to get the spte_lock.
-We avoid this case by releasing the lock if P's current spte has a non-NULL
-frame.
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
 
-If, on the other hand, P's current spte has no frame, P will call frame_get,
-which may try to acquire the used_lock in evict. This is not an issue, 
-however, as Q will never try to evict P's current page's frame, as it does
-not exist. P will simply wait for Q to finish.
+To handle the various child / parents race conditions, each process keeps a 
+list of "struct child_thread"s (see B1 for details), where each element in 
+the list corresponds to a child thread. We'll walk through how each of the
+specified situations plays out.
 
-2) two processes are evicting and freeing respectively the same frame. If a 
-process determines to evict a frame, and then the owner of that frame exits, 
-we pin the frame during the resource cleanup while holding the spte lock. 
-This keeps the frame from being chosen to be evicted, or evicts it entirely 
-before freeing the resources. If we did not do this, process P could choose 
-to evict the frame owned by Q, P could get swapped off for Q before evicting 
-the frame, then Q could die and try to free the frame. P holds the frame table 
-lock; Q holds the spte lock. Q attempts to acquire the frame table lock; P 
-attempts to acquire the spte lock. Deadlock. By pinning, we safely release the 
-spte lock before freeing the frame, knowing that our clock algorithm will not
-evict the pinned frame.
+*P calls wait (C) before C exits*
 
->> B6: A page fault in process P can cause another process Q's frame
->> to be evicted.  How do you ensure that Q cannot access or modify
->> the page during the eviction process?  How do you avoid a race
->> between P evicting Q's frame and Q faulting the page back in?
+P enters the wait call, identifies the child thread struct associated with 
+C's tid, and sema-downs the "done" field of that associated struct. C has 
+not exited yet, so P blocks until C ultimately sema-ups same done field. Each 
+thread contains a pointer ("self") to the child_thread struct that the parent 
+has associated with it, so it can easily access and sema-up the necessary 
+sema. It does not sema up until it has deposited its exit status into the 
+"exit_status" field of the child_thread. C proceeds to free all 
+resources and deallocate itself in thread_exit and process_exit without 
+furthur ado. In the meantime, P is unblocked and harvests the deposited exit 
+status. It then removes C from its child list (thus removing any possibility 
+of repeated waits to C) and frees the associated child_thread struct.
 
-We avoid P evicting Q's frame and Q faulting the page back in through
-a lock in the spte struct. When the page faults, our implementation
-loads the page through a call to page_load. In page_load, the lock must
-be acquired before any loading, specifically getting a frame, is done.
-In eviction, the same lock is acquired before the frame is actually
-swapped out. In doing so, we assure that the eviction will finish
-before the frame is loaded back in, avoiding race conditions.
+*P calls wait (C) after C exits*
 
->> B7: Suppose a page fault in process P causes a page to be read from
->> the file system or swap.  How do you ensure that a second process Q
->> cannot interfere by e.g. attempting to evict the frame while it is
->> still being read in?
+Before freeing its resources and deallocating itself, C deposits its exit 
+status into its associated child_thread and ups its sema. Thus when P calls
+wait, the sema has a value of 1 and P is not blocked at all. P harvests the 
+exit status, removes C from its child list, and frees the associated child_
+thread struct. 
 
-P acquires its own spte_lock while loading and sets its pinned flag to true.
-This keeps its frame from being evicted by Q, as Q must acquire the held
-spte_lock before evicting. Q can evict once P has finished loading.
+*P terminates without waiting before C exits*
 
-There is a possibility for deadlock addressed in question B5.1.
+As P terminates and enters process_exit, it loops through each of its 
+children. Upon reaching C, it disable's interrupts. The way we implemented
+the P/C relationship, this is an unavoidable step. P checks that C is still
+running, and proceeds to set C's self (within C's thread struct) to NULL. 
+Should P be preempted and C exit and free itself, P would attempt to access 
+and edit freed memory. A shared lock would still be racy, as lock acquisition 
+would still have to be nested in an if statement. Regardless, P accesses C
+and sets its "self" field to NULL. It proceeds to free the associated 
+child_thread struct. When C exits, it sees that its "self" is NULL and 
+proceeds with the normal exit process. It does not attempt to notify its
+parent, for as far as C is concerned it does not have a parent. 
 
->> B8: Explain how you handle access to paged-out pages that occur
->> during system calls.  Do you use page faults to bring in pages (as
->> in user programs), or do you have a mechanism for "locking" frames
->> into physical memory, or do you use some other design?  How do you
->> gracefully handle attempted accesses to invalid virtual addresses?
+*P terminates without waiting after C exits*
 
-Our mechanism for "locking" frames into physical memory is the pinned
-boolean flag. In a call to sys_read or sys_write, our implementation
-uses a helper function called load_and_pin. This function assures that
-the loaded pages that will be used in the system call will not be evicted
-by setting the "pinned" flag to true. In our eviction algorithm, we ignore
-pages that have been pinned.
+C exits as in case 1, leaving a return value, setting running to false, and 
+sema-up-ing the semaphore in P's associated child_thread struct. P never calls
+wait, so exits. In process_exit, P goes through each of its remaining 
+child_threads and, having noticed that C is no longer running, simply frees
+C's child_thread struct. 
 
-This flag has a double purpose, as we want to be sure not to evict pages
-that are in the process of being loaded. To that end, frame_get returns
-a pinned page, which the page_load function flips only once the page
-loading has run to completion.
+In all cases, all locks are released and all files closed before termination.
 
-With respect to handling attempted accesses to invalid virtual addresses,
-we simply kill the offending process, as in userprogs. We determine that
-its invalid if its not in that process's SPT and not fulfilling the stack
-extension heuristic.
-
----- RATIONALE ----
-
->> B9: A single lock for the whole VM system would make
->> synchronization easy, but limit parallelism.  On the other hand,
->> using many locks complicates synchronization and raises the
->> possibility for deadlock but allows for high parallelism.  Explain
->> where your design falls along this continuum and why you chose to
->> design it this way.
-
-Our implementation uses a lock for every spte as described. This is as
-fine-grained as we could implement, as it allows for processes to evict and 
-page fault concurrently on different pages seamlessly. Selecting a frame 
-to evict, on the other hand, requires a coarse lock over the entire frame 
-table, as two processes cannot elect to evict the same frame, nor can they
-both use the same clock hand to iterate over the table. We never hold this
-frame table lock during IO operations, however. We simply pin the frame
-involved in the IO or remove it from the used_list to ensure it remains 
-in the frame table and is not evicted.
-
-
-             MEMORY MAPPED FILES
-             ===================
-
----- DATA STRUCTURES ----
-
->> C1: Copy here the declaration of each new or changed `struct' or
->> `struct' member, global or static variable, `typedef', or
->> enumeration.  Identify the purpose of each in 25 words or less.
-
-SYSCALL.H
-typedef int mapid_t;             /* Unique identifier for mmapped files. */
-
-struct mmapped_file
-{
-  struct list_elem elem;         /* List elem. */
-  mapid_t id;                    /* Identifier (similar to fd). */
-  void *start_vaddr;             /* Start of mmapped zone. */
-  void *end_vaddr;               /* End of mmapped zone. */
-  struct file *file;             /* File mmapped. */
-};  
-
-/* Lock for the mapid to assign to each file. */
-static struct lock mapid_lock;
-
-THREAD.H
-struct list mmapped_files;          /* List of memory mapped files. */
-
-
----- ALGORITHMS ----
-
->> C2: Describe how memory mapped files integrate into your virtual
->> memory subsystem.  Explain how the page fault and eviction
->> processes differ between swap pages and other pages.
-
-To mmap a file to a process's virtual address space, we add a page for each
-PGSIZE chunk of the file into that process's supplemental page table. These
-pages are loaded lazily, and uniquely identified with the DISK location. 
-
-Pages located on DISK (i.e., mmapped addresses) are loaded on a page fault
-just as we would load pages from the executable file (identified with the EXEC
-location). This loading occurs with calls to file_read from the file data 
-that is stored in each supplemental page table entry. Pages in SWAP are read
-from the swap disk (abstracted to swap.h) and ZERO'd pages (new stack pages) 
-are simply memset to 0.
-
-While mmapped pages (in DISK) are loaded more like pages in EXEC, they are
-evicted quite differently. Evicted pages are unloaded in our page_unload 
-function, which switches based on location. If the user page is dirty (i.e. 
-the process has edited the mmapped file), that page is written back to the 
-originally mapped file using the same file data stored in the SPTE that was 
-originally used to load that user page. Dirty EXEC pages are written to swap
-(and their location is changed to SWAP) and dirty SWAP pages (i.e. were loaded
-from swap) are likewise written back to swap. Dirty ZERO pages are written to 
-swap (and location also changed to SWAP).
-
->> C3: Explain how you determine whether a new file mapping overlaps
->> any existing segment.
-
-Our implementation of mmap iterates through the supplied virtual buffer in 
-PGSIZE increments. Before adding a new mmapped page to the mapping process's
-supplemental page table, we check to see if the SPT already has a page at that
-virtual address space. If it does, then there is overlap, so we first remove 
-any already-added SPTEs associated with the mmap call in question and return
-MAP_FAILED.
+Our implementation additionally dealt with three potential special cases. 
+One occured when the kernel killed a process, as a result of page fault or 
+one of the other reasons outlined in "exception.c". To handle this case, we 
+change the calls of thread_exit() to sys_exit(-1) in exception.c. This ensures
+that resources are freed and that any parents / children are appropriately 
+notifed. The second special case was when a parent called wait() more than 
+once. However, becuase we remove the child thread from a parents children 
+list at the end of every call to wait(), we didn't need to adjust our 
+implementation at all. On that parent's next call to wait, it won't find 
+that TID on its children list and will return -1. The final special case, 
+which we already touched on above, occured when P entered process_exit and 
+C entered sys_exit at the same time, and preemption caused one thread to 
+access and edit freed memory. As discussed, we disabled interrupts in
+each critical section to remove the possibility of this happening.
 
 ---- RATIONALE ----
 
->> C4: Mappings created with "mmap" have similar semantics to those of
->> data demand-paged from executables, except that "mmap" mappings are
->> written back to their original files, not to swap.  This implies
->> that much of their implementation can be shared.  Explain why your
->> implementation either does or does not share much of the code for
->> the two situations.
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
 
-We share entirely the code for loading mmapped and data files. If you look to
-our page_load function, in our location switch statement, case DISK (mmapped)
-and case EXEC (data) share the code. In both cases we are reading data from 
-a file on disk, so it makes sense to share this code.
+We chose to implement user memory by validating it as mapped before attempting
+to use it. At that point in the assignment, we did not feel comfortable 
+enough to attempt the second method, and we talked to a TA who assured us that
+for this project, our efforts would be better spent on other aspects (such as 
+really understanding wait, etc). If we had another week, this is something 
+that we would come back to.
 
-On eviction or process termination, we do not share code. While dirty mmapped
-pages must be written back to the file that they came from, dirty data files
-are written to swap. Thus, in our page_unload, we have seperate code for 
-data and mmapped files. Dirty data files are written to swap (and location 
-changed to SWAP) while mmapped files are written back to disk. 
+We also chose to special case memory checking for char *'s. The
+implementation and rationale behind this are described in B6 (paragraph 4).
 
-We feel like we share as much code as possible without compromising the 
-important differences in functionality.    
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+Advantages:
+
+ Lookup is relatively fast given that we iterate over only a single thread's
+ open files, rather than all files
+ 
+ Associated on a per-process level so doesn't take up main kernel space
+
+Disadvantages:
+
+ Have to allocate and free conversion structs
+ 
+ Each thread struct has to keep list of open file descriptor structs
+ 
+ O(n) lookup where n is number of file descriptors opened by a thread
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+We did not change the mapping. The identity mapping is a functional design
+for single-threaded processes. For code readability and simplicity we
+chose to maintain this design.
 
                SURVEY QUESTIONS
                ================
@@ -481,3 +535,4 @@ the quarter.
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+
