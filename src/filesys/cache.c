@@ -132,7 +132,7 @@ read_thread (void *aux UNUSED)
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
       
-      lock_release (&get_cache_entry (rb->to_read, !READ_AHEAD)->lock);
+      get_cache_entry (rb->to_read, READ_AHEAD);
       free (rb);
     }
 }
@@ -213,8 +213,7 @@ add_to_cache (block_sector_t sector)
       lock_acquire (&entry->lock);
       he->sector = sector;
       he->present = true;
-      struct hash_elem *e = hash_insert (&buffer_cache, &he->elem);
-      ASSERT (!e); // TODO honestly this is puzzling
+      hash_insert (&buffer_cache, &he->elem);
     }
   else
     {
@@ -253,16 +252,16 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
+  if (read_ahead)
+    {
+      lock_release (&cache_lock);
+      return NULL;
+    }   
   for (;;)
     {       
       struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
       if (elem)
         {
-          if (read_ahead)
-            {
-              lock_release (&cache_lock);
-              return NULL;
-            }         
           struct hash_entry *he = hash_entry (elem, struct hash_entry, elem);
           if (!he->present)
             {
