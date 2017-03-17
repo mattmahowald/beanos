@@ -497,6 +497,8 @@ deallocate (struct inode *inode)
   if (num_doubly > 0)
     {
       struct indirect_block *doubly = malloc (sizeof *doubly);
+      if (!doubly)
+        PANIC ("Could not malloc block in deallocating the inode");
       cache_read (doubly_indirect, doubly, 0, BLOCK_SECTOR_SIZE);
       for (i = 0; i < NUM_INDIRECT; i++)
         {

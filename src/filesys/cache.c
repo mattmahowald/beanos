@@ -51,6 +51,8 @@ void
 cache_init ()
 {
   entry_array = malloc (BUFFER_SIZE * sizeof (struct cache_entry));
+  if (!entry_array)
+    PANIC ("Could not malloc buffer cache");
   hash_init (&buffer_cache, cache_hash, cache_less, NULL);
   hash_init (&flush_entries, flush_hash, flush_less, NULL);
   cond_init (&flush_complete);
@@ -140,9 +142,7 @@ read_thread (void *aux UNUSED)
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      // printf("Read thread about to beast up %d\n", rb->to_read);
       get_cache_entry (rb->to_read, READ_AHEAD);
-      // printf("Read thread beasted up %d\n", rb->to_read);
       free (rb);
     }
 }
@@ -153,6 +153,8 @@ static void
 flush (struct cache_entry *entry)
 {
   struct flush_entry *flush = malloc (sizeof *flush);
+  if (!flush)
+    PANIC ("Could not malloc hash entry in flushing");
   flush->sector = entry->sector;
   hash_insert (&flush_entries, &flush->elem);
   lock_release (&cache_lock);
@@ -187,6 +189,8 @@ evict (block_sector_t new_sector)
               free (hash_entry (e, struct hash_entry, elem));
 
               struct hash_entry *new = malloc (sizeof *new);
+              if (!new)
+                PANIC ("Could not malloc hash_entry in eviction");
               new->array_index = clock_hand;
               new->sector = new_sector;
               new->present = false;
@@ -219,6 +223,8 @@ add_to_cache (block_sector_t sector)
   if (size != BUFFER_SIZE)
     {
       struct hash_entry *he = malloc (sizeof (*he));
+      if (!he)
+        PANIC ("Could not malloc hash entry in add_to_cache");
       entry = &entry_array[size];
       he->array_index = size;
       lock_init (&entry->lock);
@@ -264,13 +270,6 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
-  // if (read_ahead)
-  //   {
-  //     lock_release (&cache_lock);
-  //     return NULL;
-  //   }   
-
-  // printf("thread %p about to beast up %d\n", thread_current (), sector);
 
   for (;;)
     {       
@@ -301,7 +300,6 @@ get_cache_entry (block_sector_t sector, bool read_ahead)
             }
           lock_release (&entry->lock);
         }
-      // printf("thread %p beasted up %d\n", thread_current (), sector);
       return entry;
     }
 }
