@@ -228,17 +228,6 @@ The function leverages dir_lookup and lookup, implemented in
 the starter code. The traversals only differ in setting the start 
 directory, then iteration runs from there. 
 
->> B3: Look over "pwd.c" in src/examples.  Briefly explain how it
->> determines the present working directory.
-
-pwd begins at the current directory by opening "." and then
-iteratively moves up the directory tree until arriving at the
-root. Within each iteration, the program opens the parent (breaking
-if the parent is "/" and finds the child directory in the parent's
-inode. The program gets the name of the child and prepends it
-to the cwd. This process continues until arriving at the root,
-at which point the cwd process is complete.
-
 ---- SYNCHRONIZATION ----
 
 >> B4: How do you prevent races on directory entries?  For example,
@@ -246,7 +235,11 @@ at which point the cwd process is complete.
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
 
-+++ I think we are going to block using a lock on every directory.
+To prevent races on directory entries we use a directory lock in the inode.
+When two threads try to create a directory with the same name, in dir_add
+both threads will try to acquire the lock. The first will acquire, search the 
+dir, add the subdir, then release the lock. The second will then acquire the
+lock, find the directory, and return failure.
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current

@@ -298,11 +298,8 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
     return false;
 
   inode_acquire_dir_lock (dir->inode);
-  bool found = lookup (dir, name, NULL, NULL);
-  inode_release_dir_lock (dir->inode);
-
   /* Check that NAME is not in use. */
-  if (found)
+  if (lookup (dir, name, NULL, NULL))
     goto done;
 
   /* Set OFS to offset of free slot.
@@ -312,7 +309,6 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
-  inode_acquire_dir_lock (dir->inode);
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
@@ -323,9 +319,9 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   strlcpy (e.name, name, sizeof e.name);
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
-  inode_release_dir_lock (dir->inode);
 
  done:
+  inode_release_dir_lock (dir->inode);
   return success;
 }
 
