@@ -11,7 +11,7 @@
 static void read_thread (void *aux UNUSED);
 static void flush_thread (void *aux UNUSED);
 static void flush (struct cache_entry *entry);
-static size_t evict (void);
+static size_t evict (block_sector_t new_sector);
 
 static struct cache_entry *add_to_cache (block_sector_t sector);
 static struct cache_entry *get_cache_entry (block_sector_t sector);
@@ -59,7 +59,7 @@ cache_init ()
   cond_init (&flush_complete);
   done = false;
   clock_hand = 0;
-  thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
+  // thread_create ("flusher", PRI_DEFAULT, flush_thread, NULL);
   thread_create ("reader", PRI_DEFAULT, read_thread, NULL);
 }
 
@@ -122,7 +122,7 @@ read_thread (void *aux UNUSED)
       struct read_block *rb = list_entry(list_pop_front (&read_ahead_list), 
                                         struct read_block, elem);
       lock_release (&read_ahead_lock);
-      // lock_release (&get_cache_entry (rb->to_read)->lock);
+      cache_read (rb->to_read, NULL, 0, 512);
       free (rb);
     }
 }
@@ -133,6 +133,7 @@ flush (struct cache_entry *entry)
   struct flush_entry flush;
   flush.sector = entry->sector;
   hash_insert (&flush_entries, &flush.elem);
+  // printf("Thread %p is about to release cache lock to write back %d\n", thread_current(), flush.sector);
   lock_release (&cache_lock);
   block_write (fs_device, entry->sector, entry->data);
   lock_acquire (&cache_lock);
@@ -141,13 +142,13 @@ flush (struct cache_entry *entry)
 }
 
 static size_t
-evict ()
+evict (block_sector_t new_sector)
 {
 
   ASSERT (lock_held_by_current_thread (&cache_lock));
 
   struct cache_entry *evicted = NULL;
-  size_t index;
+  size_t index = 0;
   while (evicted == NULL)
     {
       struct cache_entry *entry = &entry_array[clock_hand];
@@ -156,16 +157,28 @@ evict ()
           if (!(entry->flags & ACCESSED))
             {
               evicted = entry;
-
+              // printf("Thread %p has chosen to evict sector %d\n", thread_current (), evicted->sector);
               struct hash_entry tmp;
               tmp.sector = evicted->sector;
               struct hash_elem *e = hash_find (&buffer_cache, &tmp.elem);
               hash_delete (&buffer_cache, &tmp.elem);
               free (hash_entry (e, struct hash_entry, elem));
-              if (evicted->flags & DIRTY)
-                flush (evicted);
 
+              struct hash_entry *new = malloc (sizeof *new);
+              new->array_index = clock_hand;
+              new->sector = new_sector;
+              new->present = false;
+              hash_insert (&buffer_cache, &new->elem);
               index = clock_hand;
+              clock_hand = (clock_hand + 1) % BUFFER_SIZE;
+
+              if (evicted->flags & DIRTY)
+              {
+                // printf("Thread %p is flushing sector %d in index %d\n", thread_current (), evicted->sector, clock_hand);
+                flush (evicted);
+                // printf("Thread %p has flushed sector %d in index %d\n", thread_current (), evicted->sector, clock_hand);
+              }
+              new->present = true;
             }
           else
             {
@@ -173,9 +186,8 @@ evict ()
               lock_release (&entry->lock);
             }
         }
-        clock_hand = (clock_hand + 1) % BUFFER_SIZE;
     }
-
+  // printf("Thread %p has evicted from index %d\n", thread_current (), index);
   return index;
 }
 
@@ -184,13 +196,17 @@ add_to_cache (block_sector_t sector)
 {
   struct cache_entry *entry;
   size_t size = hash_size (&buffer_cache);
-  struct hash_entry *he = malloc (sizeof (*he));
   if (size != BUFFER_SIZE)
     {
+      struct hash_entry *he = malloc (sizeof (*he));
       entry = &entry_array[size];
       he->array_index = size;
       lock_init (&entry->lock);
       lock_acquire (&entry->lock);
+      he->sector = sector;
+      he->present = true;
+      struct hash_elem *e = hash_insert (&buffer_cache, &he->elem);
+      ASSERT (!e); // TODO honestly this is puzzling
     }
   else
     {
@@ -205,23 +221,18 @@ add_to_cache (block_sector_t sector)
           struct hash_elem *e = hash_find (&buffer_cache, &tmp_cache.elem);
           if (e)
             {
+              // TODO maybe check the present here
               entry = &entry_array[hash_entry (elem, struct hash_entry, elem)->array_index];
               lock_acquire (&entry->lock);
               return entry;
             }
           elem = hash_find (&flush_entries, &tmp.elem);
         }
-      he->array_index = evict ();
-      entry = &entry_array [he->array_index];
+      entry = &entry_array [evict (sector)];
     }
 
   entry->sector = sector;
   entry->flags = ACCESSED;
-
-  he->sector = sector;
-  struct hash_elem *e = hash_insert (&buffer_cache, &he->elem);
-  
-  ASSERT (!e); // TODO honestly this is puzzling
 
   return entry;
 }
@@ -233,22 +244,32 @@ get_cache_entry (block_sector_t sector)
   struct cache_entry *entry;
   tmp.sector = sector;
   lock_acquire (&cache_lock);
-
-  struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
-  
-  if (elem)
-    {
-      entry = &entry_array[hash_entry (elem, struct hash_entry, elem)->array_index];
-      lock_acquire (&entry->lock);
-      lock_release (&cache_lock);
-    } 
-  else
-    {
-      entry = add_to_cache (sector);    
-      lock_release (&cache_lock);
-      block_read (fs_device, sector, entry->data);
+  // printf("Thread %p acquired lock and getting sector %d\n", thread_current (), sector);
+  for (;;)
+    {       
+      struct hash_elem *elem = hash_find (&buffer_cache, &tmp.elem);
+      if (elem)
+        {
+          struct hash_entry *he = hash_entry (elem, struct hash_entry, elem);
+          if (!he->present)
+            {
+              // printf("Thread %p found %d, but it isn't present. Waiting now.\n", thread_current (), sector);
+              cond_wait (&flush_complete, &cache_lock);
+              // printf("Thread %p woke up!\n", thread_current ());
+              continue;
+            }
+          entry = &entry_array[he->array_index];
+          lock_acquire (&entry->lock);
+          lock_release (&cache_lock);
+        } 
+      else
+        {
+          entry = add_to_cache (sector);    
+          lock_release (&cache_lock);
+          block_read (fs_device, sector, entry->data);
+        }
+      return entry;
     }
-  return entry;
 }
 
 /* Reads from given sector into given buffer. If the sector is not
@@ -261,7 +282,9 @@ cache_read (block_sector_t sector, void *buffer, size_t ofs,
   if (buffer)
     memcpy (buffer, entry->data + ofs, to_read);
   entry->flags |= ACCESSED;
+  // printf("Thread %p is about to release lock of entry with sector %d, which should be %d\n", thread_current (), entry->sector, sector);
   lock_release (&entry->lock);
+  // printf("released\n");
 }
 
 /* Writes from the given buffer into given sector on disk. If the 
@@ -274,7 +297,9 @@ cache_write (block_sector_t sector, const void *buffer, size_t ofs,
   if (buffer)
     memcpy (entry->data + ofs, buffer, to_write);
   entry->flags |= DIRTY | ACCESSED;
+  // printf("Thread %p is about to release lock of entry with sector %d, which should be %d\n", thread_current (), entry->sector, sector);
   lock_release (&entry->lock);
+  // printf("released\n");
 }
 
 
