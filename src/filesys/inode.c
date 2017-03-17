@@ -410,7 +410,6 @@ inode_create (block_sector_t sector, off_t length, bool isdir)
       if (success)
         cache_write (sector, disk_inode, 0, BLOCK_SECTOR_SIZE);
 
-      // TODO free map free indirect blocks on failure too
       free (disk_inode);
     }
   return success;
@@ -616,7 +615,6 @@ extend_file (struct inode_disk *inode, size_t new_size)
   if (num_allocated == (num_end_sectors - num_start_sectors))
     {
       inode->length = new_size;
-      return true;
     }
   else
     sys_exit (-1);

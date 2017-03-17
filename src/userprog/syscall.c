@@ -416,7 +416,6 @@ static bool
 sys_readdir (int fd, char *name)
 {
 
-  // TODO validate name
   validate_address ((void **) name, 14);
   struct fd_to_dir *fd_ = get_dir_struct_from_fd (fd);
   if (fd_ == NULL)
