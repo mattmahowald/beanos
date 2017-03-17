@@ -100,8 +100,9 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 
     struct list files;                  /* List of open files. */
-    struct list directories;            /* List of open directories. */
     struct file *exec_file;             /* Read only executable. */
+    struct list directories;            /* List of open directories. */
+    struct dir *cwd;                    /* Current working directory. */
 
     struct list children;               /* List of child threads. */
     struct child_thread *self;          /* Allocated struct for thread metadata */
@@ -110,9 +111,6 @@ struct thread
     bool load_success;                  /* Indicator of succesful load. */
 
 #endif
-
-    // DIRECTORY
-    struct dir *cwd;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

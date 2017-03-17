@@ -29,15 +29,136 @@ Matt Mahowald <mcm2018@stanford.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* Identifies an inode. */
+#define INODE_MAGIC 0x494e4f44
+
+/* The number of direct blocks possible in the inode structure. */
+#define NUM_DIRECT 123
+
+/* The number of indirect blocks possible in the inode structure. */
+#define NUM_INDIRECT 128 
+
+/* The number of doubly indirect blocks possible in the inode structure. */
+#define NUM_DOUBLY_INDIRECT NUM_INDIRECT * NUM_INDIRECT
+
+/* The maximum number of blocks one inode can hold. */
+#define MAX_SECTORS NUM_DIRECT + NUM_INDIRECT + NUM_DOUBLY_INDIRECT
+
+/* The number of meta_fields above the data in the disk_inode. */
+#define META_FIELDS 2
+
+/* The offset of fields in the disk_inode */
+#define DIRECT_OFFS META_FIELDS * sizeof(unsigned)
+#define INDIRECT_OFFS (META_FIELDS + NUM_DIRECT) * sizeof (unsigned)
+#define DOUBLY_OFFS (META_FIELDS + NUM_DIRECT + 1) * sizeof (unsigned)
+struct inode_disk
+  {
+    off_t length;                       /* File size in bytes. */
+    unsigned magic;                     /* Magic number. */
+    block_sector_t direct[NUM_DIRECT];  /* Direct blocks' sector numbers. */
+    block_sector_t indirect;            /* Indirect block's sector number. */
+    block_sector_t doubly_indirect;     /* Doubly indirect sector. */
+    bool dir;                           /* Is a directory? */  
+    uint8_t unused[3];
+  };
+
+/* An indirect block holds NUM_INDIRECT sectors, each pointing to either a
+   direct block of the sector is an indirect block or an indirect block if
+   the block is doubly indirect. */
+struct indirect_block
+  {
+    block_sector_t sectors[NUM_INDIRECT]; 
+  };
+
+/* In-memory inode. */
+struct inode 
+  {
+    struct list_elem elem;           /* Element in inode list. */
+    block_sector_t sector;           /* Sector number of disk location. */
+    int open_cnt;                    /* Number of openers. */
+    bool removed;                    /* True if deleted, false otherwise. */
+    int deny_write_cnt;              /* 0: writes ok, >0: deny writes. */
+    size_t length;                   /* Length of the data in bytes. */
+    bool dir;                        /* Inode is a directory. */
+    struct lock lock;                /* Lock for struct inode's fields. */
+    struct lock extension_lock;      /* Prevents to extensions at once. */
+    struct lock dir_lock;            /* Locks dirent fields. */
+  };
+
+
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
+
+/* On-disk inode.
+   Must be exactly BLOCK_SECTOR_SIZE bytes long. 
+
+   The structure of the inode includes direct, indirect and doubly indirect
+   blocks as well as some meta data, arranged *(not to scale, each entry is
+   four bytes):
+
+   +-----------------------------+
+   |            length           |
+   +-----------------------------+
+   |            magic            |
+   +-----------------------------+
+   |          direct[0]          | -> a sector corresponding to a block of data
+   +-----------------------------+
+   |          direct[1]          | ->                 ""
+   +-----------------------------+
+   |          direct[2]          | ->                 ""
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |             .               |
+   +-----------------------------+
+   |      direct[NUM_DIRECT]     | ->                 ""
+   +-----------------------------+   
+   |                             |    a sector corresponding to an indirect
+   |          indirect           | -> block that holds NUM_INDIRECT sectors
+   |                             |    corresponding to blocks of data.
+   +-----------------------------+     
+   |                             |    a sector corresponding to an indirect
+   |      doubly_indirect        | -> block that holds NUM_INDIRECT sectors,
+   |                             |    each corresponding to indirect blocks.
+   +-----------------------------+   
+   |    dir + 3 bytes unused     |    
+   +-----------------------------+   
+*/
+
+The total size for a file supported by our inode structure = 
+	BLOCK_SECTOR_SIZE * MAX_SECTORS.
+
+BLOCK_SECTOR_SIZE is #defined as 512, the standard.
+
+MAX_SECTORS is #defined as the sum of NUM_DIRECT, NUM_INDIRECT and NUM_DOUBLY
+
+NUM_DIRECT is #defined as 123, which is the number of filled slots from the 
+meta data and the indirect and doubly indirect blocks (3 + 1 + 1) subtracted
+from the total available spots for block_sector_t on a block (512/4 = 128). 
+
+NUM_INDIRECT is #defined as the number of block_sector_t slots on a block,
+128.
+
+NUM_DOUBLY_INDIRECT is #defined as the square of NUM_INDIRECT, or 16384.
+
+This total provides us with (123 + 128 + 16384) * 512 = 8,517,120 bytes.
 
 ---- SYNCHRONIZATION ----
 
 >> A3: Explain how your code avoids a race if two processes attempt to
 >> extend a file at the same time.
 
-+++ do we do this yet?
+Our in-memory inode struct, which is shared among processes, contains an
+extension lock that a process attempting to extend a file acquires before
+reading the length of the file. After reading the length of the file, the 
+process determines whether it should extend the file. If it should, it holds
+the lock through extending the file, writing to the extension, and setting 
+the length as the last step. Finally the process releases the lock. The 
+second process trying to write or extend will be blocked until the first
+process has updated the inode's length. The process will then determine if it
+should still extend using the updated length.
 
 >> A4: Suppose processes A and B both have file F open, both
 >> positioned at end-of-file.  If A reads and B writes F at the same
@@ -46,7 +167,10 @@ Matt Mahowald <mcm2018@stanford.edu>
 >> nonzero data, A is not allowed to see all zeros.  Explain how your
 >> code avoids this race.
 
-+++ 
+In waiting to update the inode's length until the bytes are written, B keeps A
+from reading any non-written bytes, because the reader won't read past 
+the un-updated inode's length. If the length is updated, the bytes are
+guaranteed to be written.
 
 >> A5: Explain how your synchronization design provides "fairness".
 >> File access is "fair" if readers cannot indefinitely block writers
@@ -55,7 +179,8 @@ Matt Mahowald <mcm2018@stanford.edu>
 >> processes writing to a file cannot prevent another process forever
 >> from reading the file.
 
-+++
+
+
 
 ---- RATIONALE ----
 
@@ -66,10 +191,15 @@ Matt Mahowald <mcm2018@stanford.edu>
 >> structure have, compared to a multilevel index?
 
 We chose a combination of direct, indirect, and doubly indirect. Our
-implementation uses 124 direct blocks, 1 * 128 indirect blocks, and 
-1 * 128 * 128 doubly indirect blocks.
+implementation uses 123 direct blocks, 1 * 128 indirect blocks, and 
+1 * 128 * 128 doubly indirect blocks. 
 
-
+We found this combination of multilevel index to be achieve the goals
+of allowing the max filesize, while also keeping the level of indirection
+and number of block reads necessar low for small file numbers. Of course,
+there could exist a pathological program that creates many files that
+need one block more than we support through indirect blocks. In this case,
+perhaps using more indirect blocks would be superior.
 
           SUBDIRECTORIES
           ==============
@@ -98,17 +228,6 @@ The function leverages dir_lookup and lookup, implemented in
 the starter code. The traversals only differ in setting the start 
 directory, then iteration runs from there. 
 
->> B3: Look over "pwd.c" in src/examples.  Briefly explain how it
->> determines the present working directory.
-
-pwd begins at the current directory by opening "." and then
-iteratively moves up the directory tree until arriving at the
-root. Within each iteration, the program opens the parent (breaking
-if the parent is "/" and finds the child directory in the parent's
-inode. The program gets the name of the child and prepends it
-to the cwd. This process continues until arriving at the root,
-at which point the cwd process is complete.
-
 ---- SYNCHRONIZATION ----
 
 >> B4: How do you prevent races on directory entries?  For example,
@@ -116,7 +235,11 @@ at which point the cwd process is complete.
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
 
-+++ I think we are going to block using a lock on every directory.
+To prevent races on directory entries we use a directory lock in the inode.
+When two threads try to create a directory with the same name, in dir_add
+both threads will try to acquire the lock. The first will acquire, search the 
+dir, add the subdir, then release the lock. The second will then acquire the
+lock, find the directory, and return failure.
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
