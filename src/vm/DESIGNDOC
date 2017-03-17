@@ -29,24 +29,176 @@ Scott Morris <swmorris@stanford.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+PAGE.H
+/* States the location of the page's frame. */
+enum page_location
+{
+  DISK,  /* Page is a file located on disk. */
+  EXEC,  /* Page is an executable file. */
+  SWAP,  /* Page has been evicted and placed on the swap. */
+  ZERO   /* Page does not exist anywhere, must be alloc'd and zero'd. */
+};
+
+/* File data held by an spte. */
+struct spte_file
+{
+  struct file *file;
+  off_t ofs;
+  size_t read;
+  size_t zero;
+};
+
+/* Supplementary Page Table Entry
+
+   The spte struct holds data for a single entry in a process's supplementary 
+   page table. The purpose of this table is two-fold:
+
+     1. On a page fault, the supplementary page table supplies the kernel with
+        the location of the frame, one of three locations defined by the 
+        enumeration page_location. 
+     2. The kernel uses the supplementary page table to cleanup up memory 
+        associated with a process on exit.
+
+   The supplementary page table is defined as a hash table within each 
+   process. By placing the hash table as a member of the thread struct, 
+   pintOS cannot support sharing, but this allowed the hash function to 
+   use the user virtual address rather than the kernel virtual address. */
+
+struct spte 
+{
+  struct hash_elem elem;        /* Hash element for the spt. */
+  uint32_t *pd;                 /* Page directory for the spte's thread. */
+  enum page_location location;  /* Location of the frame. */
+  void *vaddr;                  /* User virtual address. */
+  struct frame *frame;          /* Kernel virtual address. */
+  struct spte_file file_data;   /* File information. */
+  bool writable;                /* Process has read-write privileges. */
+  swapid_t swapid;              /* Swap ID for pages written to the swap. */
+  struct lock spte_lock;        /* Lock for each virtual page. */
+};
+
+FRAME.H
+
+struct frame 
+{
+    void *paddr;              /* The kernel virtual address of the frame. */
+    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
+    struct list_elem elem;    /* List element for the used and free lists. */
+    bool pinned;              /* Pinned flag to keep frames from eviction. */
+};
+
+struct list frame_free_list;    /* Keeps track of free frames. */
+struct list frame_used_list;    /* Keeps track of frames currently in use. */
+
+struct lock free_lock;          /* Used to sync frame_free_list. */
+struct lock used_lock;          /* Used to sync frame_used_list. */
+
+static struct list_elem *clock_hand; /* Keeps track of clock hand for 
+                                        eviction algorithm. */
+
+---- ALGORITHMS ----
+
+>> A2: In a few paragraphs, describe your code for accessing the data
+>> stored in the SPT about a given page.
+
+If a page has already been loaded into a frame, then that frame address
+is already associated with the user page in the process's page directory
+and the process will be able to directly access that data without furthur
+intervention.
+
+However, if a user page has not yet been loaded into a frame, the process
+will page fault and enter the page fault handler. Once we do some basic
+validation (that the page fault occured in user address space, that it 
+was not trying to write to read only memory, etc), we check that process's
+SPT. If we find it in the SPT, we get a free or evicted frame and load that 
+pages data into the frame (in page_load). This data could be in three 
+locations:
+
+1) The frame could be on DISK (includes the EXEC enum case). In this case,
+   our implementation reads the data back into the newly populated spte's
+   frame. The information of where to read from is stored in the spte_file
+   struct, which is loaded in on creation of the spte. One consideration is
+   writing back dirtied pages, which is handled in page_unload.
+2) The frame could have been evicted and written to the swap partition. 
+   This case leverages our swap api, which reads the memory corresponding 
+   to the  swapid stored in the spte using the devices/block.c block_read 
+   call.
+3) In the final case, the page_load function is called from growing or
+   initializing the stack, which requests a zero'd out page. This memsets 
+   the frame to zero.
+
+Finally, page_load updates the pagedir for the current thread so that the
+MMU contains the correct mapping of virtual address to physical address.
+
+page_unload does the work to maintain an accurate spte for a given virtual
+address, including writing loaded pages back to their origin on eviction or
+process completion.
+=======
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
+>>>>>>> no-vm
 
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
+
+We avoid the issue by using only the supplied user virtual addresses in the 
+kernel.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
+
+There are two cases in frame acquisition — when frames are still free, and 
+when no frames are free (i.e. a frame needs to be evicted). We'll walk through
+how race conditions are avoided in both cases. 
+
+In order to recieve a frame, a process first must acquire the free_lock. This
+prevents any other process from accessing the frame free list. If the list is 
+not empty, the first free frame is popped before releasing the lock. Thus, the
+free list will always remain intact.
+
+If no frame is free, a process releases the free_lock and begins the eviction
+process, the first step being acquiring a lock on the used frame list called
+used_lock. Subsequently, we follow the eviction policy described in B2 with
+synch details included.
+
+Finally, this is all done in a while loop. The algorithm tries the free list,
+then tries to evict, then repeats. We initially looped on evict alone after 
+checking the free list, but realized this introduced a race where the system
+could free all pages before the process could find one to evict.
+
+---- RATIONALE ----
+
+>> A5: Why did you choose the data structure(s) that you did for
+>> representing virtual-to-physical mappings
+
+For the spt of each thread, we created a hash table to map the user virtual
+addresses to the spte and frame structs. This allowed us to achieve constant 
+time lookup of virtual addresses' data. The only time we need to iterate over
+the spt is in cleanup.
+
+For our frame data structure, we decided to use two lists: a free list and
+a used list. The free list is an auxiliary structure that is populated in 
+frame_init with palloc'd pages. This list allows for immediate access to
+a free frame. Once all frames are filled, our used list becomes the data
+structure that is circularly traversed by the clock hand to determine
+which pages to evict. We decided a list is the most compatible with the
+clock algorithm, as it can be iterated over easily. While a hash is also
+iterable, it would have provided no advantage in our implementation (each 
+spte holds a pointer to the frame it owns, so we do not ever have to traverse
+the list to find a particular frame).
+
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
 
                PAGING TO AND FROM DISK
                =======================
@@ -57,18 +209,80 @@ Scott Morris <swmorris@stanford.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+See also A1.
+
+FRAME.H
+
+struct frame 
+{
+    void *paddr;              /* The kernel virtual address of the frame. */
+    struct spte *spte;        /* The spte to refer to pagedir and vaddr. */
+    struct list_elem elem;    /* List element for the used and free lists. */
+    bool pinned;              /* Pinned flag to keep frames from eviction. */
+};
+
+/* Locks to guard frame table operations. */
+static struct lock free_lock;
+static struct lock used_lock;
+
+/* Frame table. */
+static struct list frame_free_list;
+static struct list frame_used_list;
+
+/* List element used to keep a persistent clock hand among evictions. */
+static struct list_elem *clock_hand;
+
+
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+We use the one-hand clock cycle algorithm. One global reference to a
+used frame list element iterates over the used list, evicting if accessed
+is set to false or setting the bit to false if it is true. 
+
+To keep processes from evicting the same frame, we used a lock on the 
+frame table (specifically the used frame list). This lock is acquired
+and held while our eviction algorithm selects a frame. The clock hand
+reference is guarded by this lock.
+
+As described in B8, we use a pinned flag to avoid evicting frames that
+are referenced by other threads in the process of loading a page or
+using frame data in a call to sys_read or sys_write.
+
+Finally, as described in B5, we use a lock per spte, which must be acquired
+to atomically test if the eviction algorithm can evict and subsequently does 
+evict a frame. We avoided the issue of deadlock here, as described in B5.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+Our spte keeps track of the pagedir of its owner thread. When a process
+P evicts a page belonging to Q, P can clear the virtual address from Q's
+pagedir through the spte. Additionally, when a page is swapped, we keep 
+track of the swap id and update the spte's location to SWAP.
+
+Q's spte is locked as we update its field to reflect its eviction to ensure
+synchronization. It's frame value is set to NULL. 
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+As described in the assignment spec, a page fault within 32 bytes, defined
+as PUSHA_BYTES, of the stack pointer is probably an attempt to grow the 
+stack. However, it does not suffice to grow the stack only if the fault
+is within the valid region between the esp and esp - PUSHA_BYTES. Because
+we lazily allocate to the stack, meaning that when a 20kb array is declared
+on the stack no actual memory allocation occurs for those 20kbs--the only 
+change is to the stack pointer, our heuristic also includes any address
+below PHYS_BASE and above the stack pointer. We also impose a limit on the 
+size of any given process's stack. If the process attempts to grow the stack
+beyond this limit, we do not allocate a new stack page.
 
 ---- SYNCHRONIZATION ----
 
@@ -77,21 +291,75 @@ Scott Morris <swmorris@stanford.edu>
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+We use three main synchronization tools: a coarse lock on the frame list,
+fine locks on every spte entry, and a pinning flag within each frame struct. 
+The potential for deadlock arises in a couple of cases:
+
+1) process P loads a frame that process Q is trying to evict. This is the
+case that is detailed in B7. The case for deadlock arises if process P 
+acquires its own spte_lock, process Q acquires the used_lock, then process
+P attempts to acquire the used_lock while Q attempts to get the spte_lock.
+We avoid this case by releasing the lock if P's current spte has a non-NULL
+frame.
+
+If, on the other hand, P's current spte has no frame, P will call frame_get,
+which may try to acquire the used_lock in evict. This is not an issue, 
+however, as Q will never try to evict P's current page's frame, as it does
+not exist. P will simply wait for Q to finish.
+
+2) two processes are evicting and freeing respectively the same frame. If a 
+process determines to evict a frame, and then the owner of that frame exits, 
+we pin the frame during the resource cleanup while holding the spte lock. 
+This keeps the frame from being chosen to be evicted, or evicts it entirely 
+before freeing the resources. If we did not do this, process P could choose 
+to evict the frame owned by Q, P could get swapped off for Q before evicting 
+the frame, then Q could die and try to free the frame. P holds the frame table 
+lock; Q holds the spte lock. Q attempts to acquire the frame table lock; P 
+attempts to acquire the spte lock. Deadlock. By pinning, we safely release the 
+spte lock before freeing the frame, knowing that our clock algorithm will not
+evict the pinned frame.
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+We avoid P evicting Q's frame and Q faulting the page back in through
+a lock in the spte struct. When the page faults, our implementation
+loads the page through a call to page_load. In page_load, the lock must
+be acquired before any loading, specifically getting a frame, is done.
+In eviction, the same lock is acquired before the frame is actually
+swapped out. In doing so, we assure that the eviction will finish
+before the frame is loaded back in, avoiding race conditions.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+P acquires its own spte_lock while loading and sets its pinned flag to true.
+This keeps its frame from being evicted by Q, as Q must acquire the held
+spte_lock before evicting. Q can evict once P has finished loading.
+
+There is a possibility for deadlock addressed in question B5.1.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+Our mechanism for "locking" frames into physical memory is the pinned
+boolean flag. In a call to sys_read or sys_write, our implementation
+uses a helper function called load_and_pin. This function assures that
+the loaded pages that will be used in the system call will not be evicted
+by setting the "pinned" flag to true. In our eviction algorithm, we ignore
+pages that have been pinned.
+
+This flag has a double purpose, as we want to be sure not to evict pages
+that are in the process of being loaded. To that end, frame_get returns
+a pinned page, which the page_load function flips only once the page
+loading has run to completion.
 
 ---- RATIONALE ----
 
@@ -102,6 +370,16 @@ Scott Morris <swmorris@stanford.edu>
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+Our implementation uses a lock for every spte as described. This is as
+fine-grained as we could implement, as it allows for processes to evict and 
+page fault concurrently on different pages seamlessly. Selecting a frame 
+to evict, on the other hand, requires a coarse lock over the entire frame 
+table, as two processes cannot elect to evict the same frame, nor can they
+both use the same clock hand to iterate over the table. We never hold this
+frame table lock during IO operations, however. We simply pin the frame
+involved in the IO to ensure it remains in the frame table and is not 
+evicted.
+
              MEMORY MAPPED FILES
              ===================
 
@@ -111,11 +389,53 @@ Scott Morris <swmorris@stanford.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+typedef int mapid_t;             /* Unique identifier for mmapped files. */
+
+struct mmapped_file
+{
+  struct list_elem elem;         /* List elem. */
+  mapid_t id;                    /* Identifier (similar to fd). */
+  void *start_vaddr;             /* Start of mmapped zone. */
+  void *end_vaddr;               /* End of mmapped zone. */
+  struct file *file;             /* File mmapped. */
+};  
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
+
+To mmap a file to a process's virtual address space, we add a page for each
+PGSIZE chunk of the file into that process's supplemental page table. These
+pages are loaded lazily, and uniquely identified with the DISK location. 
+
+Pages located on DISK (i.e., mmapped addresses) are loaded on a page fault
+just as we would load pages from the executable file (identified with the EXEC
+location). This loading occurs with calls to file_read from the file data 
+that is stored in each supplemental page table entry. Pages in SWAP are read
+from the swap disk (abstracted to swap.h) and ZERO'd pages (new stack pages) 
+are simply memset to 0.
+
+While mmapped pages (in DISK) are loaded more like pages in EXEC, they are
+evicted quite differently. Evicted pages are unloaded in our page_unload 
+function, which switches based on location. If the user page is dirty (i.e. 
+the process has edited the mmapped file), that page is written back to the 
+originally mapped file using the same file data stored in the SPTE that was 
+originally used to load that user page. Dirty EXEC pages are written to swap
+(and their location is changed to SWAP) and dirty SWAP pages (i.e. were loaded
+from swap) are likewise written back to swap. Dirty ZERO pages are written to 
+swap (and location also changed to SWAP).
+
+>> C3: Explain how you determine whether a new file mapping overlaps
+>> any existing segment.
+
+Our implementation of mmap iterates through the supplied virtual buffer in 
+PGSIZE increments. Before adding a new mmapped page to the mapping process's
+supplemental page table, we check to see if the SPT already has a page at that
+virtual address space. If it does, then there is overlap, so we first remove 
+any already-added SPTEs associated with the mmap call in question and return
+MAP_FAILED.
 
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
@@ -128,6 +448,20 @@ Scott Morris <swmorris@stanford.edu>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+We share entirely the code for loading mmapped and data files. If you look to
+our page_load function, in our location switch statement, case DISK (mmapped)
+and case EXEC (data) share the code. In both cases we are reading data from 
+a file on disk, so it makes sense to share this code.
+
+On eviction or process termination, we do not share code. While dirty mmapped
+pages must be written back to the file that they came from, dirty data files
+are written to swap. Thus, in our page_unload, we have seperate code for 
+data and mmapped files. Dirty data files are written to swap (and location 
+changed to SWAP) while mmapped files are written back to disk. 
+
+We feel like we share as much code as possible without compromising the 
+important differences in functionality.    
 
                SURVEY QUESTIONS
                ================

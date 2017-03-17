@@ -5,6 +5,7 @@
 #include "threads/init.h"
 #include "threads/pte.h"
 #include "threads/palloc.h"
+#include "vm/page.h"
 
 static uint32_t *active_pd (void);
 static void invalidate_pagedir (uint32_t *);
@@ -37,11 +38,6 @@ pagedir_destroy (uint32_t *pd)
     if (*pde & PTE_P) 
       {
         uint32_t *pt = pde_get_pt (*pde);
-        uint32_t *pte;
-        
-        for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++)
-          if (*pte & PTE_P) 
-            palloc_free_page (pte_get_page (*pte));
         palloc_free_page (pt);
       }
   palloc_free_page (pd);
